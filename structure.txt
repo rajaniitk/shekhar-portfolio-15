@@ -1,0 +1,70 @@
+   main.py
+    app.py
+ª   models.py
++---instance
+ª       eda_app.db
+ª       
++---routes
+ª       data_processor_routes.py
+ª       analysis_engine_routes.py
+ª       feature_engineer_routes.py
+        advance_feature_engineering_routes.py
+ª       insights_generator_routes.py
+ª       ml_engine_routes.py
+ª       report_generator_routes.py
+ª       statistical_tests_routes.py
+ª       visualization_engine_routes.py
+        column_analysis_routes.py
+        comparison_routes.py
+ª       
++---services
+ª       data_processor.py
+ª       analysis_engine.py
+ª       feature_engineer.py
+        advance_feature_engineering.py
+ª       insights_generator.py
+ª       ml_engine.py
+ª       report_generator.py
+ª       statistical_tests.py
+ª       visualization_engine.py
+        column_analysis.py
+        comparison.py
+ª       
++---static
+ª   ª   favicon.ico
+ª   ª   
+ª   +---css
+ª   ª       dark_theme.css
+            extra.css
+            components.css
+ª   ª       
+ª   +---js
+ª           feature_engineering.js
+ª           main.js
+ª           ml_dashboard.js
+ª           statistics.js
+ª           visualizations.js
+            analysis_dashboard.js
+            column_analysis.js
+ª           advance_feature_engineering.js
+            comparison.js
+            reports.js
+            upload.js
+            insights.js
++
+---templates
+ª       analysis_dashboard.html
+ª       base.html
+ª       column_analysis.html
+ª       comparison.html
+ª       feature_engineering.html
+ª       advance_feature_engineering.html
+ª       index.html
+ª       ml_models.html
+ª       reports.html
+ª       statistical_tests.html
+ª       upload.html
+ª       visualization_dashboard.html
+        insights.html
+ª     
+            
