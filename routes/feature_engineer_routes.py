@@ -1,7 +1,7 @@
 from flask import Blueprint, request, jsonify, session
 from services.feature_engineer import FeatureEngineer
 from services.data_processor import DataProcessor
-from app import db
+from database import db
 from models import Dataset, Feature
 import logging
 

@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify, session
 from services.ml_engine import MLEngine
-from app import db
+from database import db
 from models import Dataset, MLModel
 import logging
 

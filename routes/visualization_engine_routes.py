@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify, session, redirect, url_for
 from services.visualization_engine import VisualizationEngine
-from app import db
+from database import db
 from models import Dataset, Visualization
 import logging
 

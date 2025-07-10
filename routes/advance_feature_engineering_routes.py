@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify, session
 from services.advance_feature_engineering import AdvanceFeatureEngineering
-from app import db
+from database import db
 from models import Dataset, FeatureEngineering
 import logging
 

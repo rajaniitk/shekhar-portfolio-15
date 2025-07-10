@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify, session, send_file
 from services.report_generator import ReportGenerator
-from app import db
+from database import db
 from models import Dataset, Report
 import logging
 import os

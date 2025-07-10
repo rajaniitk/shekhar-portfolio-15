@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 from werkzeug.utils import secure_filename
 from services.data_processor import DataProcessor # Assuming your service class is here
-from app import db # Assuming db is initialized in app.py
+from database import db # Import db from database module
 from models import Dataset # Import your Dataset model
 import logging
 

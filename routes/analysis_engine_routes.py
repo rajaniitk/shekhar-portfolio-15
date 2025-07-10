@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify, session
 from services.analysis_engine import AnalysisEngine
-from app import db
+from database import db
 from models import Dataset, Analysis
 import logging
 
@@ -10,7 +10,7 @@ analysis_engine_bp = Blueprint('analysis_engine', __name__, url_prefix='/api/ana
 
 from flask import Blueprint, request, jsonify, session
 from services.analysis_engine import AnalysisEngine
-from app import db
+from database import db
 from models import Dataset, Analysis
 import logging
 from datetime import datetime # Import datetime if not already imported

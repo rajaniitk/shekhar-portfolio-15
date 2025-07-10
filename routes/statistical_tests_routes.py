@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify, session
 from services.statistical_tests import StatisticalTests
-from app import db
+from database import db
 from models import Dataset, Analysis
 import logging
 

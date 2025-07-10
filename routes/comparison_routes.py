@@ -1,7 +1,7 @@
 from flask import Blueprint, request, jsonify, render_template, current_app, session
 from services.comparison import Comparison
 from services.data_processor import DataProcessor
-from app import db
+from database import db
 from models import Dataset, Analysis
 import logging
 import pandas as pd

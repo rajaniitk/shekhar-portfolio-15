@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify, session
 from services.insights_generator import InsightsGenerator
-from app import db
+from database import db
 from models import Dataset, Insight
 import logging
 

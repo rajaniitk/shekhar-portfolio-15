@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify, session
 from services.column_analysis import ColumnAnalysis
-from app import db
+from database import db
 from models import Dataset, Analysis
 import logging
 import pandas as pd
