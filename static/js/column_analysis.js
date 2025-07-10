@@ -45,11 +45,11 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         });
 
-        // Analysis buttons - These will trigger specific API calls within analyzeColumn or separate handlers
-        document.getElementById('transform-column').addEventListener('click', () => showMessage('Transform options', 'info'));
-        document.getElementById('clean-column').addEventListener('click', () => showMessage('Cleaning options', 'info'));
-        document.getElementById('encode-column').addEventListener('click', () => showMessage('Encoding options', 'info'));
-        document.getElementById('export-analysis').addEventListener('click', () => showMessage('Export analysis', 'info'));
+        // Analysis buttons - These will trigger specific API calls
+        document.getElementById('transform-column').addEventListener('click', handleTransformColumn);
+        document.getElementById('clean-column').addEventListener('click', handleCleanColumn);
+        document.getElementById('encode-column').addEventListener('click', handleEncodeColumn);
+        document.getElementById('export-analysis').addEventListener('click', handleExportAnalysis);
 
         // Relationship analysis
         document.getElementById('analyze-relationship').addEventListener('click', analyzeRelationship);
@@ -624,12 +624,26 @@ document.addEventListener('DOMContentLoaded', function() {
         if (activeButton) activeButton.classList.add('active');
         if (activeContent) activeContent.classList.add('active');
 
-        // Trigger specific data loading for tabs if not already loaded by analyzeColumn
-        if (tabName === 'patterns' && !document.getElementById('value-patterns').innerHTML) {
-            fetchOutlierInfo(); // Fetch outliers when Patterns tab is shown
-            fetchTrendInfo(); // Fetch trends if applicable
+        // Trigger specific data loading for tabs
+        if (!currentDatasetId || !currentColumn) return;
+
+        switch(tabName) {
+            case 'basic-stats':
+                // Basic stats are already loaded by analyzeColumn
+                break;
+            case 'distribution':
+                fetchDistributionData();
+                break;
+            case 'patterns':
+                fetchPatternsData();
+                break;
+            case 'quality':
+                fetchQualityData();
+                break;
+            case 'relationships':
+                // Relationships need user interaction to select compare column
+                break;
         }
-        // Add calls for other tabs if their data isn't loaded by default
     }
 
     // Placeholder for generic messages, can be used for actions that don't fetch data immediately
@@ -673,7 +687,6 @@ document.addEventListener('DOMContentLoaded', function() {
     // --- Specific Tab Data Fetching ---
     // These are called when the respective tabs become active if data isn't pre-loaded
 
-    // Example: If distribution is not loaded with analyzeColumn, call this when 'distribution' tab becomes active
     async function fetchDistributionData() {
         if (!currentDatasetId || !currentColumn) return;
         try {
@@ -689,125 +702,667 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    // Similar functions for quality, patterns, etc., if needed to be lazy-loaded per tab.
+    async function fetchPatternsData() {
+        if (!currentDatasetId || !currentColumn) return;
+        
+        // Fetch patterns data
+        try {
+            const response = await fetch(`/api/column_analysis/patterns/${currentDatasetId}?column=${encodeURIComponent(currentColumn.name)}`);
+            if (!response.ok) throw new Error('Failed to fetch patterns data');
+            const data = await response.json();
+            
+            if (data.success && data.patterns) {
+                const patterns = data.patterns;
+                const valuePatternsContainer = document.getElementById('value-patterns');
+                
+                let html = '<div class="pattern-result">';
+                if (patterns.string_patterns) {
+                    const sp = patterns.string_patterns;
+                    html += `
+                        <h6>String Patterns</h6>
+                        <p>Average Length: ${safeFormat(sp.average_length, 1)} characters</p>
+                        <p>Contains Numbers: ${sp.contains_numbers ? 'Yes' : 'No'}</p>
+                        <p>Contains Special Characters: ${sp.contains_special_chars ? 'Yes' : 'No'}</p>
+                        <p>Uppercase Values: ${sp.all_uppercase}</p>
+                        <p>Lowercase Values: ${sp.all_lowercase}</p>
+                    `;
+                } else {
+                    html += '<p>No specific patterns detected.</p>';
+                }
+                html += '</div>';
+                valuePatternsContainer.innerHTML = html;
+            }
+        } catch (error) {
+            console.error("Error fetching patterns data:", error);
+            document.getElementById('value-patterns').innerHTML = '<p>Could not fetch patterns data.</p>';
+        }
+
+        // Also fetch outlier and trend info as before
+        fetchOutlierInfo();
+        fetchTrendInfo();
+    }
+
+    async function fetchQualityData() {
+        if (!currentDatasetId || !currentColumn) return;
+        try {
+            const response = await fetch(`/api/column_analysis/data_quality/${currentDatasetId}?column=${encodeURIComponent(currentColumn.name)}`);
+            if (!response.ok) throw new Error('Failed to fetch quality data');
+            const data = await response.json();
+            
+            if (data.success && data.quality) {
+                const quality = data.quality;
+                
+                // Update quality sections
+                document.getElementById('completeness-analysis').innerHTML = renderQualityMetric(quality.completeness, 'good');
+                document.getElementById('consistency-analysis').innerHTML = renderQualityMetric(quality.consistency, 'good');
+                document.getElementById('validity-analysis').innerHTML = renderQualityMetric(quality.validity, 'good');
+            }
+        } catch (error) {
+            console.error("Error fetching quality data:", error);
+            document.getElementById('completeness-analysis').innerHTML = '<p>Could not fetch quality data.</p>';
+            document.getElementById('consistency-analysis').innerHTML = '<p>Could not fetch quality data.</p>';
+            document.getElementById('validity-analysis').innerHTML = '<p>Could not fetch quality data.</p>';
+        }
+    }
+
+    // --- Action Handlers ---
+    async function handleTransformColumn() {
+        if (!currentDatasetId || !currentColumn) {
+            showError('Please select a dataset and column first.');
+            return;
+        }
+
+        const transformationType = prompt('Enter transformation type (standardize, normalize, log, sqrt):') || 'standardize';
+        
+        showLoading();
+        try {
+            const response = await fetch(`/api/column_analysis/transform/${currentDatasetId}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    column: currentColumn.name,
+                    transformation_type: transformationType
+                })
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error || 'Failed to transform column');
+            }
+
+            const data = await response.json();
+            if (data.success) {
+                alert(`Success: ${data.message}`);
+            } else {
+                throw new Error(data.error || 'Transform failed');
+            }
+        } catch (error) {
+            console.error('Transform error:', error);
+            showError('Failed to transform column: ' + error.message);
+        } finally {
+            hideLoading();
+        }
+    }
+
+    async function handleCleanColumn() {
+        if (!currentDatasetId || !currentColumn) {
+            showError('Please select a dataset and column first.');
+            return;
+        }
+
+        const cleaningOptions = {
+            remove_nulls: confirm('Remove null values?'),
+            remove_duplicates: confirm('Remove duplicate values?'),
+            remove_outliers: confirm('Remove outliers?')
+        };
+
+        showLoading();
+        try {
+            const response = await fetch(`/api/column_analysis/clean/${currentDatasetId}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    column: currentColumn.name,
+                    options: cleaningOptions
+                })
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error || 'Failed to clean column');
+            }
+
+            const data = await response.json();
+            if (data.success) {
+                alert(`Success: ${data.message}`);
+            } else {
+                throw new Error(data.error || 'Cleaning failed');
+            }
+        } catch (error) {
+            console.error('Clean error:', error);
+            showError('Failed to clean column: ' + error.message);
+        } finally {
+            hideLoading();
+        }
+    }
+
+    async function handleEncodeColumn() {
+        if (!currentDatasetId || !currentColumn) {
+            showError('Please select a dataset and column first.');
+            return;
+        }
+
+        const encodingType = prompt('Enter encoding type (label, onehot, target, ordinal):') || 'label';
+
+        showLoading();
+        try {
+            const response = await fetch(`/api/column_analysis/encode/${currentDatasetId}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    column: currentColumn.name,
+                    encoding_type: encodingType
+                })
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error || 'Failed to encode column');
+            }
+
+            const data = await response.json();
+            if (data.success) {
+                alert(`Success: ${data.message}`);
+            } else {
+                throw new Error(data.error || 'Encoding failed');
+            }
+        } catch (error) {
+            console.error('Encode error:', error);
+            showError('Failed to encode column: ' + error.message);
+        } finally {
+            hideLoading();
+        }
+    }
+
+    async function handleExportAnalysis() {
+        if (!currentDatasetId || !currentColumn) {
+            showError('Please select a dataset and column first.');
+            return;
+        }
+
+        const exportFormat = prompt('Enter export format (json, csv, xlsx):') || 'json';
+
+        showLoading();
+        try {
+            const response = await fetch(`/api/column_analysis/export/${currentDatasetId}?column=${encodeURIComponent(currentColumn.name)}&format=${exportFormat}`);
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error || 'Failed to export analysis');
+            }
+
+            const data = await response.json();
+            if (data.success) {
+                alert(`Success: ${data.message}\nDownload URL: ${data.export_info.download_url}`);
+            } else {
+                throw new Error(data.error || 'Export failed');
+            }
+        } catch (error) {
+            console.error('Export error:', error);
+            showError('Failed to export analysis: ' + error.message);
+        } finally {
+            hideLoading();
+        }
+    }
 });
 
 // Add CSS for column analysis specific styling
 const columnAnalysisCSS = `
 <style>
+/* Main container styling */
+.column-analysis-container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+.dashboard-header {
+    text-align: center;
+    margin-bottom: 30px;
+    padding: 20px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border-radius: 12px;
+}
+
+.dashboard-header h2 {
+    margin: 0 0 10px 0;
+    font-size: 2em;
+}
+
+.dashboard-header p {
+    margin: 0;
+    opacity: 0.9;
+}
+
+/* Dataset and column selectors */
+.dataset-selector, .column-selector {
+    background: white;
+    padding: 20px;
+    border-radius: 10px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    margin-bottom: 20px;
+}
+
+.form-group {
+    margin-bottom: 15px;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: 600;
+    color: #374151;
+}
+
+.form-control {
+    width: 100%;
+    padding: 12px;
+    border: 2px solid #e2e8f0;
+    border-radius: 8px;
+    font-size: 14px;
+    transition: border-color 0.3s ease;
+}
+
+.form-control:focus {
+    outline: none;
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+/* Overview cards */
+.column-overview {
+    background: white;
+    padding: 25px;
+    border-radius: 12px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+    margin-bottom: 25px;
+}
+
+.overview-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 20px;
+    margin-top: 20px;
+}
+
+.overview-card {
+    background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+    padding: 20px;
+    border-radius: 12px;
+    text-align: center;
+    border: 1px solid #e2e8f0;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.overview-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+}
+
+.overview-card h4 {
+    margin: 0 0 10px 0;
+    color: #6b7280;
+    font-size: 0.9em;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.overview-card span {
+    font-size: 1.8em;
+    font-weight: 700;
+    color: #1e293b;
+    display: block;
+}
+
+/* Tabs styling */
+.analysis-tabs {
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+    margin-bottom: 25px;
+    overflow: hidden;
+}
+
+.tab-buttons {
+    display: flex;
+    background: #f8fafc;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.tab-button {
+    flex: 1;
+    padding: 15px 20px;
+    border: none;
+    background: transparent;
+    color: #6b7280;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    border-bottom: 3px solid transparent;
+}
+
+.tab-button:hover {
+    background: #e2e8f0;
+    color: #374151;
+}
+
+.tab-button.active {
+    background: white;
+    color: #3b82f6;
+    border-bottom-color: #3b82f6;
+}
+
+.tab-content {
+    display: none;
+    padding: 25px;
+}
+
+.tab-content.active {
+    display: block;
+}
+
+/* Statistics grid */
 .stats-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-    gap: 15px;
-    margin: 15px 0;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 20px;
+    margin: 20px 0;
 }
 
 .stat-item {
-    background: #f8fafc;
-    padding: 15px;
-    border-radius: 8px;
+    background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+    padding: 20px;
+    border-radius: 12px;
     border: 1px solid #e2e8f0;
     text-align: center;
+    transition: transform 0.2s ease;
+}
+
+.stat-item:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(0,0,0,0.15);
 }
 
 .stat-item strong {
     display: block;
-    color: #374151;
-    font-size: 0.9em;
-    margin-bottom: 5px;
+    color: #6b7280;
+    font-size: 0.85em;
+    margin-bottom: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
 }
 
 .stat-item span {
-    font-size: 1.4em;
+    font-size: 1.6em;
     font-weight: 700;
     color: #1e293b;
+    display: block;
 }
 
+/* Category stats */
 .category-stats {
-    background: #f8fafc;
-    padding: 20px;
-    border-radius: 8px;
+    background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+    padding: 25px;
+    border-radius: 12px;
     border: 1px solid #e2e8f0;
 }
 
 .value-counts {
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    margin-top: 15px;
+    gap: 10px;
+    margin-top: 20px;
+    max-height: 300px;
+    overflow-y: auto;
 }
 
 .value-count-item {
     display: flex;
     justify-content: space-between;
-    padding: 8px 12px;
+    padding: 12px 16px;
     background: white;
-    border-radius: 6px;
+    border-radius: 8px;
     border: 1px solid #e5e7eb;
+    transition: background-color 0.2s ease;
 }
 
+.value-count-item:hover {
+    background: #f3f4f6;
+}
+
+.value-count-item .value {
+    font-weight: 600;
+    color: #374151;
+}
+
+.value-count-item .count {
+    color: #6b7280;
+    font-size: 0.9em;
+}
+
+/* Chart placeholder */
 .chart-placeholder {
-    background: #f8fafc;
+    background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
     border: 2px dashed #cbd5e1;
-    border-radius: 8px;
-    padding: 40px;
+    border-radius: 12px;
+    padding: 60px 40px;
     text-align: center;
     color: #64748b;
+    font-size: 1.1em;
 }
 
-.relationship-result {
+/* Results styling */
+.relationship-result, .pattern-result, .outlier-result, .trends-result {
     background: white;
     padding: 20px;
-    border-radius: 8px;
-    border: 1px solid #e2e8f0;
-    margin-top: 15px;
+    border-radius: 12px;
+    border-left: 4px solid #3b82f6;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
 }
 
 .relationship-stats {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-    gap: 15px;
-    margin: 15px 0;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 20px;
+    margin: 20px 0;
 }
 
-.pattern-result, .outlier-result, .trends-result {
-    background: #f8fafc;
-    padding: 15px;
-    border-radius: 8px;
-    border-left: 4px solid #3b82f6;
-    margin-bottom: 15px;
+/* Quality metrics */
+.quality-metrics {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 20px;
+}
+
+.quality-section h5 {
+    margin: 0 0 15px 0;
+    color: #374151;
+    font-size: 1.2em;
 }
 
 .quality-metric {
     text-align: center;
     background: white;
-    padding: 20px;
-    border-radius: 8px;
+    padding: 25px;
+    border-radius: 12px;
     border: 1px solid #e2e8f0;
-    margin-bottom: 15px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+    transition: transform 0.2s ease;
+}
+
+.quality-metric:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(0,0,0,0.15);
 }
 
 .metric-score {
-    font-size: 2em;
+    font-size: 2.5em;
     font-weight: 700;
-    margin-bottom: 10px;
-    padding: 10px;
-    border-radius: 8px;
+    margin-bottom: 15px;
+    padding: 15px;
+    border-radius: 12px;
+    transition: all 0.3s ease;
 }
 
 .metric-score.good {
-    background: #dcfce7;
+    background: linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%);
     color: #166534;
 }
 
 .metric-score.fair {
-    background: #fef3c7;
+    background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
     color: #92400e;
 }
 
 .metric-score.poor {
+    background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%);
+    color: #991b1b;
+}
+
+/* Action buttons */
+.column-actions {
+    background: white;
+    padding: 25px;
+    border-radius: 12px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+    margin-bottom: 25px;
+}
+
+.action-buttons {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 15px;
+    margin-top: 15px;
+}
+
+.btn {
+    padding: 12px 20px;
+    border: none;
+    border-radius: 8px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    text-decoration: none;
+    display: inline-block;
+    text-align: center;
+}
+
+.btn-primary {
+    background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+    color: white;
+}
+
+.btn-primary:hover {
+    background: linear-gradient(135deg, #2563eb 0%, #1e40af 100%);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(59, 130, 246, 0.3);
+}
+
+.btn-secondary {
+    background: linear-gradient(135deg, #6b7280 0%, #4b5563 100%);
+    color: white;
+}
+
+.btn-secondary:hover {
+    background: linear-gradient(135deg, #5b6470 0%, #374151 100%);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(107, 114, 128, 0.3);
+}
+
+/* Loading modal */
+.modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+}
+
+.modal-content {
+    background: white;
+    padding: 40px;
+    border-radius: 12px;
+    text-align: center;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+}
+
+.loading-spinner {
+    width: 40px;
+    height: 40px;
+    border: 4px solid #e2e8f0;
+    border-top: 4px solid #3b82f6;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin: 0 auto 20px;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+    .column-analysis-container {
+        padding: 10px;
+    }
+    
+    .overview-cards,
+    .stats-grid,
+    .action-buttons {
+        grid-template-columns: 1fr;
+    }
+    
+    .tab-buttons {
+        flex-wrap: wrap;
+    }
+    
+    .tab-button {
+        flex: none;
+        min-width: 120px;
+    }
+}
+
+/* Error and success states */
+.error-message {
     background: #fee2e2;
     color: #991b1b;
+    padding: 15px;
+    border-radius: 8px;
+    border: 1px solid #f87171;
+    margin: 10px 0;
+}
+
+.success-message {
+    background: #dcfce7;
+    color: #166534;
+    padding: 15px;
+    border-radius: 8px;
+    border: 1px solid #22c55e;
+    margin: 10px 0;
 }
 </style>
 `;

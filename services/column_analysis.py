@@ -900,7 +900,8 @@ class ColumnAnalysis:
         recommendations = []
         
         # Missing values
-        missing_pct = analysis['missing_analysis']['missing_percentage']
+        basic_stats = analysis.get('basic_statistics', {})
+        missing_pct = basic_stats.get('null_percentage', 0)
         if missing_pct > 20:
             recommendations.append("High missing values - consider imputation or removal")
         elif missing_pct > 5:
@@ -908,17 +909,19 @@ class ColumnAnalysis:
         
         # Data type specific recommendations
         if pd.api.types.is_numeric_dtype(data):
-            skewness = analysis['distribution_analysis']['skewness']
+            distribution = analysis.get('distribution_summary', {})
+            skewness = distribution.get('skewness', 0)
             if abs(skewness) > 1:
                 recommendations.append("Consider transformation to reduce skewness")
             
-            if 'outlier_analysis' in analysis:
-                outlier_pct = analysis['outlier_analysis']['iqr_method']['percentage']
+            outlier_summary = analysis.get('outlier_summary', {})
+            if outlier_summary and 'iqr_method' in outlier_summary:
+                outlier_pct = outlier_summary['iqr_method'].get('percentage', 0)
                 if outlier_pct > 5:
                     recommendations.append("Investigate and handle outliers")
         
         elif data.dtype == 'object':
-            unique_pct = analysis['uniqueness_analysis']['unique_percentage']
+            unique_pct = basic_stats.get('unique_percentage', 0)
             if unique_pct > 80:
                 recommendations.append("High cardinality - consider grouping rare categories")
             elif unique_pct < 10:

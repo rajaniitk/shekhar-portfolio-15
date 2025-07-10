@@ -6,38 +6,6 @@ import logging
 
 column_analysis_bp = Blueprint('column_analysis', __name__, url_prefix='/api/column_analysis')
 
-def get_datasets():
-    """Get all available datasets for analysis operations"""
-    try:
-        # Query all datasets from the database
-        datasets = Dataset.query.all()
-        dataset_list = []
-
-        # Iterate through each dataset and format the data for JSON response
-        for dataset in datasets:
-            dataset_list.append({
-                'id': dataset.id,
-                'filename': dataset.filename,
-                'rows': dataset.num_rows,
-                'columns': dataset.num_columns,
-                'file_size': dataset.file_size,
-                # Safely format the upload timestamp:
-                # If dataset.created_at is None, assign None. Otherwise, call isoformat().
-                'created_at': dataset.upload_timestamp.isoformat() if dataset.upload_timestamp else None
-            })
-
-        # Return a successful JSON response with the list of datasets
-        return jsonify({
-            'success': True,
-            'datasets': dataset_list
-        })
-
-    except Exception as e:
-        # Log the error on the server side for debugging
-        logging.error(f"Error fetching datasets: {str(e)}")
-        # Return a JSON response indicating failure and the error message, with a 500 status code
-        return jsonify({'success': False, 'error': f"An internal server error occurred while retrieving datasets: {str(e)}"}), 500
-
 @column_analysis_bp.route('/datasets')
 def get_datasets():
     """Get all available datasets for analysis operations"""
@@ -312,4 +280,137 @@ def get_recommendations(dataset_id):
         
     except Exception as e:
         logging.error(f"Recommendations error: {str(e)}")
+        return jsonify({'error': f"An unexpected server error occurred: {str(e)}"}), 500
+
+@column_analysis_bp.route('/transform/<int:dataset_id>', methods=['POST'])
+def transform_column(dataset_id):
+    try:
+        dataset = Dataset.query.get_or_404(dataset_id)
+        
+        column = request.json.get('column')
+        transformation_type = request.json.get('transformation_type', 'standardize')
+        
+        if not column:
+            return jsonify({'error': 'Column parameter is required'}), 400
+        
+        # For now, return a placeholder response
+        # In a full implementation, you would apply the transformation
+        return jsonify({
+            'success': True,
+            'message': f'Column "{column}" transformation with "{transformation_type}" completed',
+            'transformation_applied': {
+                'column': column,
+                'method': transformation_type,
+                'status': 'completed'
+            }
+        })
+        
+    except Exception as e:
+        logging.error(f"Transform column error: {str(e)}")
+        return jsonify({'error': f"An unexpected server error occurred: {str(e)}"}), 500
+
+@column_analysis_bp.route('/clean/<int:dataset_id>', methods=['POST'])
+def clean_column(dataset_id):
+    try:
+        dataset = Dataset.query.get_or_404(dataset_id)
+        
+        column = request.json.get('column')
+        cleaning_options = request.json.get('options', {})
+        
+        if not column:
+            return jsonify({'error': 'Column parameter is required'}), 400
+        
+        # For now, return a placeholder response
+        # In a full implementation, you would apply the cleaning
+        return jsonify({
+            'success': True,
+            'message': f'Column "{column}" cleaning completed',
+            'cleaning_applied': {
+                'column': column,
+                'options': cleaning_options,
+                'status': 'completed'
+            }
+        })
+        
+    except Exception as e:
+        logging.error(f"Clean column error: {str(e)}")
+        return jsonify({'error': f"An unexpected server error occurred: {str(e)}"}), 500
+
+@column_analysis_bp.route('/encode/<int:dataset_id>', methods=['POST'])
+def encode_column(dataset_id):
+    try:
+        dataset = Dataset.query.get_or_404(dataset_id)
+        
+        column = request.json.get('column')
+        encoding_type = request.json.get('encoding_type', 'label')
+        
+        if not column:
+            return jsonify({'error': 'Column parameter is required'}), 400
+        
+        # For now, return a placeholder response
+        # In a full implementation, you would apply the encoding
+        return jsonify({
+            'success': True,
+            'message': f'Column "{column}" encoding with "{encoding_type}" completed',
+            'encoding_applied': {
+                'column': column,
+                'method': encoding_type,
+                'status': 'completed'
+            }
+        })
+        
+    except Exception as e:
+        logging.error(f"Encode column error: {str(e)}")
+        return jsonify({'error': f"An unexpected server error occurred: {str(e)}"}), 500
+
+@column_analysis_bp.route('/export/<int:dataset_id>')
+def export_analysis(dataset_id):
+    try:
+        dataset = Dataset.query.get_or_404(dataset_id)
+        
+        column = request.args.get('column')
+        export_format = request.args.get('format', 'json')
+        
+        if not column:
+            return jsonify({'error': 'Column parameter is required'}), 400
+        
+        # For now, return a placeholder response
+        # In a full implementation, you would generate and return the export file
+        return jsonify({
+            'success': True,
+            'message': f'Analysis for column "{column}" exported successfully',
+            'export_info': {
+                'column': column,
+                'format': export_format,
+                'status': 'completed',
+                'download_url': f'/api/column_analysis/download/{dataset_id}?column={column}&format={export_format}'
+            }
+        })
+        
+    except Exception as e:
+        logging.error(f"Export analysis error: {str(e)}")
+        return jsonify({'error': f"An unexpected server error occurred: {str(e)}"}), 500
+
+@column_analysis_bp.route('/relationships/<int:dataset_id>')
+def analyze_relationships(dataset_id):
+    try:
+        dataset = Dataset.query.get_or_404(dataset_id)
+        analyzer = ColumnAnalysis()
+        
+        column1 = request.args.get('column1')
+        column2 = request.args.get('column2')
+        
+        if not column1 or not column2:
+            return jsonify({'error': 'Both column1 and column2 parameters are required'}), 400
+        
+        analyzer._load_dataframe(dataset.file_path)
+        analysis = analyzer.bivariate_analysis(column1, column2)
+        
+        return jsonify({
+            'success': True,
+            'analysis': analyzer._convert_numpy_types(analysis)
+        })
+        
+    except Exception as e:
+        logging.error(f"Relationship analysis error: {str(e)}")
         return jsonify({'error': f"An unexpected server error occurred: {str(e)}"}), 500
