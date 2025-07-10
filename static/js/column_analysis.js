@@ -941,34 +941,15 @@ document.addEventListener('DOMContentLoaded', function() {
         showLoading();
         
         try {
-            // Fetch fresh distribution data for charts
-            const response = await fetch(`/api/column_analysis/distribution/${currentDatasetId}?column=${encodeURIComponent(currentColumn.name)}`);
-            if (!response.ok) throw new Error('Failed to fetch distribution data');
+            // Use backend chart generation
+            const response = await fetch(`/api/column_analysis/generate_chart/${currentDatasetId}?column=${encodeURIComponent(currentColumn.name)}&chart_type=${chartType}`);
+            if (!response.ok) throw new Error('Failed to generate chart');
             const data = await response.json();
 
-            if (data.success && data.distribution) {
-                const distributionData = data.distribution;
-                const dataType = currentColumn.type || data.distribution.data_type;
-                
-                let chartHtml = '';
-                
-                switch(chartType) {
-                    case 'histogram':
-                        chartHtml = generateHistogram(distributionData, dataType);
-                        break;
-                    case 'boxplot':
-                        chartHtml = generateBoxPlot(distributionData, dataType);
-                        break;
-                    case 'value_counts':
-                        chartHtml = generateValueCounts(distributionData, dataType);
-                        break;
-                    default:
-                        chartHtml = '<p>Unknown chart type</p>';
-                }
-                
-                chartContainer.innerHTML = chartHtml;
+            if (data.success && data.chart) {
+                chartContainer.innerHTML = data.chart.chart_html;
             } else {
-                throw new Error('No distribution data available');
+                throw new Error(data.chart?.error || 'Failed to generate chart');
             }
         } catch (error) {
             console.error('Chart generation error:', error);

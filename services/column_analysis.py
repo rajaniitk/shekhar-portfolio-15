@@ -7,7 +7,15 @@ from typing import Dict, List, Any, Optional, Tuple
 import logging
 import warnings
 import json
+import matplotlib.pyplot as plt
+import seaborn as sns
+import io
+import base64
 warnings.filterwarnings('ignore')
+
+# Set matplotlib to use non-interactive backend
+import matplotlib
+matplotlib.use('Agg')
 
 class ColumnAnalysis:
     """Comprehensive column-wise analysis service"""
@@ -713,34 +721,80 @@ class ColumnAnalysis:
     
     def _analyze_numeric_distribution(self, data: pd.Series) -> Dict[str, Any]:
         """Analyze numeric distribution"""
+        clean_data = data.dropna()
+        
+        # Handle empty data case
+        if len(clean_data) == 0:
+            return {
+                'mean': None,
+                'median': None,
+                'mode': None,
+                'std': None,
+                'variance': None,
+                'min': None,
+                'max': None,
+                'range': None,
+                'iqr': None,
+                'skewness': None,
+                'kurtosis': None,
+                'cv': None,
+                'q1': None,
+                'q3': None,
+                'count': len(data)
+            }
+        
+        # Calculate quartiles
+        q1 = float(clean_data.quantile(0.25))
+        q3 = float(clean_data.quantile(0.75))
+        iqr = q3 - q1
+        
         return {
-            'mean': float(data.mean()),
-            'median': float(data.median()),
-            'mode': float(data.mode().iloc[0]) if not data.mode().empty else None,
-            'std': float(data.std()),
-            'variance': float(data.var()),
-            'min': float(data.min()),
-            'max': float(data.max()),
-            'range': float(data.max() - data.min()),
-            'iqr': float(data.quantile(0.75) - data.quantile(0.25)),
-            'skewness': float(stats.skew(data)),
-            'kurtosis': float(stats.kurtosis(data)),
-            'cv': float(data.std() / data.mean()) if data.mean() != 0 else np.inf
+            'mean': float(clean_data.mean()),
+            'median': float(clean_data.median()),
+            'mode': float(clean_data.mode().iloc[0]) if not clean_data.mode().empty else None,
+            'std': float(clean_data.std()),
+            'variance': float(clean_data.var()),
+            'min': float(clean_data.min()),
+            'max': float(clean_data.max()),
+            'range': float(clean_data.max() - clean_data.min()),
+            'iqr': iqr,
+            'q1': q1,
+            'q3': q3,
+            'skewness': float(stats.skew(clean_data)),
+            'kurtosis': float(stats.kurtosis(clean_data)),
+            'cv': float(clean_data.std() / clean_data.mean()) if clean_data.mean() != 0 else float('inf'),
+            'count': len(clean_data)
         }
     
     def _analyze_categorical_distribution(self, data: pd.Series) -> Dict[str, Any]:
         """Analyze categorical distribution"""
         value_counts = data.value_counts()
+        total_count = len(data)
+        
+        # Ensure we have proper fallbacks for empty data
+        if len(value_counts) == 0 or total_count == 0:
+            return {
+                'unique_values': 0,
+                'most_frequent': None,
+                'most_frequent_count': 0,
+                'least_frequent': None,
+                'least_frequent_count': 0,
+                'value_counts': {},
+                'entropy': 0.0,
+                'concentration': 0.0,
+                'count': total_count
+            }
         
         return {
             'unique_values': int(data.nunique()),
-            'most_frequent': value_counts.index[0] if len(value_counts) > 0 else None,
-            'most_frequent_count': int(value_counts.iloc[0]) if len(value_counts) > 0 else 0,
-            'least_frequent': value_counts.index[-1] if len(value_counts) > 0 else None,
-            'least_frequent_count': int(value_counts.iloc[-1]) if len(value_counts) > 0 else 0,
-            'value_counts': value_counts.head(20).to_dict(),
-            'entropy': float(stats.entropy(value_counts.values)) if len(value_counts) > 0 else 0,
-            'concentration': float(value_counts.iloc[0] / len(data)) if len(value_counts) > 0 else 0
+            'most_frequent': str(value_counts.index[0]),
+            'most_frequent_count': int(value_counts.iloc[0]),
+            'least_frequent': str(value_counts.index[-1]),
+            'least_frequent_count': int(value_counts.iloc[-1]),
+            'value_counts': {str(k): int(v) for k, v in value_counts.head(20).to_dict().items()},
+            'entropy': float(stats.entropy(value_counts.values)),
+            'concentration': float(value_counts.iloc[0] / total_count) if total_count > 0 else 0.0,
+            'count': total_count
         }
     
     def _analyze_outliers(self, data: pd.Series) -> Dict[str, Any]:
@@ -1309,3 +1363,409 @@ class ColumnAnalysis:
     def _generate_statistical_recommendations(self, analysis: Dict[str, Any]) -> List[str]:
         """Generate statistical recommendations"""
         return ['Statistical recommendations implementation pending']
+    
+    def generate_chart(self, file_path: str, column: str, chart_type: str) -> Dict[str, Any]:
+        """Generate chart for column analysis"""
+        try:
+            self._load_dataframe(file_path)
+            if column not in self.df.columns:
+                raise ValueError(f"Column {column} not found")
+            
+            data = self.df[column]
+            
+            if pd.api.types.is_numeric_dtype(data):
+                return self._generate_numeric_chart(data, chart_type, column)
+            else:
+                return self._generate_categorical_chart(data, chart_type, column)
+                
+        except Exception as e:
+            self.logger.error(f"Error generating chart: {str(e)}")
+            return {
+                'success': False,
+                'error': str(e),
+                'chart_html': f'<div class="error">Failed to generate {chart_type} chart: {str(e)}</div>'
+            }
+    
+    def _generate_numeric_chart(self, data: pd.Series, chart_type: str, column_name: str) -> Dict[str, Any]:
+        """Generate charts for numeric data"""
+        clean_data = data.dropna()
+        
+        if len(clean_data) == 0:
+            return {
+                'success': False,
+                'error': 'No valid data points',
+                'chart_html': '<div class="error">No valid data points for chart generation</div>'
+            }
+        
+        if chart_type == 'histogram':
+            return self._create_histogram(clean_data, column_name)
+        elif chart_type == 'boxplot':
+            return self._create_boxplot(clean_data, column_name)
+        elif chart_type == 'value_counts':
+            return self._create_numeric_value_counts(clean_data, column_name)
+        else:
+            return {
+                'success': False,
+                'error': f'Unknown chart type: {chart_type}',
+                'chart_html': f'<div class="error">Unknown chart type: {chart_type}</div>'
+            }
+    
+    def _generate_categorical_chart(self, data: pd.Series, chart_type: str, column_name: str) -> Dict[str, Any]:
+        """Generate charts for categorical data"""
+        clean_data = data.dropna()
+        
+        if len(clean_data) == 0:
+            return {
+                'success': False,
+                'error': 'No valid data points',
+                'chart_html': '<div class="error">No valid data points for chart generation</div>'
+            }
+        
+        return self._create_categorical_value_counts(clean_data, column_name)
+    
+    def _create_histogram(self, data: pd.Series, column_name: str) -> Dict[str, Any]:
+        """Create histogram"""
+        try:
+            fig, ax = plt.subplots(figsize=(10, 6))
+            
+            n_bins = min(50, max(10, int(np.sqrt(len(data)))))
+            counts, bins, patches = ax.hist(data, bins=n_bins, alpha=0.7, color='skyblue', edgecolor='black')
+            
+            ax.set_title(f'Histogram of {column_name}', fontsize=14, fontweight='bold')
+            ax.set_xlabel(column_name, fontsize=12)
+            ax.set_ylabel('Frequency', fontsize=12)
+            ax.grid(True, alpha=0.3)
+            
+            mean_val = data.mean()
+            std_val = data.std()
+            median_val = data.median()
+            
+            stats_text = f'Mean: {mean_val:.2f}\nMedian: {median_val:.2f}\nStd: {std_val:.2f}\nCount: {len(data)}'
+            ax.text(0.02, 0.98, stats_text, transform=ax.transAxes, fontsize=10,
+                   verticalalignment='top', bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
+            
+            plt.tight_layout()
+            
+            img_buffer = io.BytesIO()
+            plt.savefig(img_buffer, format='png', dpi=150, bbox_inches='tight')
+            img_buffer.seek(0)
+            img_base64 = base64.b64encode(img_buffer.getvalue()).decode()
+            plt.close(fig)
+            
+            skewness = stats.skew(data)
+            kurtosis = stats.kurtosis(data)
+            interpretation = self._interpret_histogram(data, skewness, kurtosis)
+            
+            chart_html = f'''
+            <div class="chart-result">
+                <h6>📊 Histogram - {column_name}</h6>
+                <div class="chart-content">
+                    <img src="data:image/png;base64,{img_base64}" style="max-width: 100%; height: auto;" />
+                </div>
+                <div class="chart-interpretation">
+                    <h6>📈 Interpretation:</h6>
+                    <p>{interpretation}</p>
+                    <div class="stats-summary">
+                        <span><strong>Skewness:</strong> {skewness:.3f}</span>
+                        <span><strong>Kurtosis:</strong> {kurtosis:.3f}</span>
+                        <span><strong>Distribution:</strong> {"Right-skewed" if skewness > 0.5 else "Left-skewed" if skewness < -0.5 else "Approximately symmetric"}</span>
+                    </div>
+                </div>
+            </div>
+            '''
+            
+            return {
+                'success': True,
+                'chart_html': chart_html,
+                'chart_type': 'histogram',
+                'statistics': {
+                    'mean': float(mean_val),
+                    'median': float(median_val),
+                    'std': float(std_val),
+                    'skewness': float(skewness),
+                    'kurtosis': float(kurtosis),
+                    'count': len(data)
+                }
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Error creating histogram: {str(e)}")
+            return {
+                'success': False,
+                'error': str(e),
+                'chart_html': f'<div class="error">Failed to create histogram: {str(e)}</div>'
+            }
+    
+    def _create_boxplot(self, data: pd.Series, column_name: str) -> Dict[str, Any]:
+        """Create box plot"""
+        try:
+            fig, ax = plt.subplots(figsize=(10, 6))
+            
+            bp = ax.boxplot(data, patch_artist=True, labels=[column_name])
+            bp['boxes'][0].set_facecolor('lightblue')
+            bp['boxes'][0].set_alpha(0.7)
+            
+            ax.set_title(f'Box Plot of {column_name}', fontsize=14, fontweight='bold')
+            ax.set_ylabel(column_name, fontsize=12)
+            ax.grid(True, alpha=0.3)
+            
+            q1 = data.quantile(0.25)
+            q2 = data.median()
+            q3 = data.quantile(0.75)
+            iqr = q3 - q1
+            lower_whisker = max(data.min(), q1 - 1.5 * iqr)
+            upper_whisker = min(data.max(), q3 + 1.5 * iqr)
+            
+            stats_text = f'Q1: {q1:.2f}\nMedian: {q2:.2f}\nQ3: {q3:.2f}\nIQR: {iqr:.2f}'
+            ax.text(0.02, 0.98, stats_text, transform=ax.transAxes, fontsize=10,
+                   verticalalignment='top', bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
+            
+            plt.tight_layout()
+            
+            img_buffer = io.BytesIO()
+            plt.savefig(img_buffer, format='png', dpi=150, bbox_inches='tight')
+            img_buffer.seek(0)
+            img_base64 = base64.b64encode(img_buffer.getvalue()).decode()
+            plt.close(fig)
+            
+            outliers = data[(data < lower_whisker) | (data > upper_whisker)]
+            outlier_percentage = (len(outliers) / len(data)) * 100
+            
+            interpretation = self._interpret_boxplot(data, q1, q2, q3, iqr, outlier_percentage)
+            
+            chart_html = f'''
+            <div class="chart-result">
+                <h6>📦 Box Plot - {column_name}</h6>
+                <div class="chart-content">
+                    <img src="data:image/png;base64,{img_base64}" style="max-width: 100%; height: auto;" />
+                </div>
+                <div class="chart-interpretation">
+                    <h6>📊 Interpretation:</h6>
+                    <p>{interpretation}</p>
+                    <div class="stats-summary">
+                        <span><strong>Q1:</strong> {q1:.3f}</span>
+                        <span><strong>Median:</strong> {q2:.3f}</span>
+                        <span><strong>Q3:</strong> {q3:.3f}</span>
+                        <span><strong>IQR:</strong> {iqr:.3f}</span>
+                        <span><strong>Outliers:</strong> {len(outliers)} ({outlier_percentage:.1f}%)</span>
+                    </div>
+                </div>
+            </div>
+            '''
+            
+            return {
+                'success': True,
+                'chart_html': chart_html,
+                'chart_type': 'boxplot',
+                'statistics': {
+                    'q1': float(q1),
+                    'median': float(q2),
+                    'q3': float(q3),
+                    'iqr': float(iqr),
+                    'outliers_count': len(outliers),
+                    'outliers_percentage': float(outlier_percentage)
+                }
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Error creating boxplot: {str(e)}")
+            return {
+                'success': False,
+                'error': str(e),
+                'chart_html': f'<div class="error">Failed to create box plot: {str(e)}</div>'
+            }
+    
+    def _create_numeric_value_counts(self, data: pd.Series, column_name: str) -> Dict[str, Any]:
+        """Create value counts chart for numeric data (binned)"""
+        try:
+            n_bins = min(20, max(5, int(np.sqrt(len(data)))))
+            bins = pd.cut(data, bins=n_bins, include_lowest=True)
+            value_counts = bins.value_counts().sort_index()
+            
+            fig, ax = plt.subplots(figsize=(12, 6))
+            
+            y_pos = np.arange(len(value_counts))
+            bars = ax.barh(y_pos, value_counts.values, color='lightcoral', alpha=0.7)
+            
+            labels = [f'{interval.left:.2f} - {interval.right:.2f}' for interval in value_counts.index]
+            ax.set_yticks(y_pos)
+            ax.set_yticklabels(labels, fontsize=9)
+            ax.set_xlabel('Frequency', fontsize=12)
+            ax.set_title(f'Binned Value Counts of {column_name}', fontsize=14, fontweight='bold')
+            ax.grid(True, alpha=0.3, axis='x')
+            
+            for i, (bar, count) in enumerate(zip(bars, value_counts.values)):
+                width = bar.get_width()
+                ax.text(width + max(value_counts.values) * 0.01, bar.get_y() + bar.get_height()/2, 
+                       f'{count}', ha='left', va='center', fontsize=9)
+            
+            plt.tight_layout()
+            
+            img_buffer = io.BytesIO()
+            plt.savefig(img_buffer, format='png', dpi=150, bbox_inches='tight')
+            img_buffer.seek(0)
+            img_base64 = base64.b64encode(img_buffer.getvalue()).decode()
+            plt.close(fig)
+            
+            chart_html = f'''
+            <div class="chart-result">
+                <h6>📊 Binned Value Counts - {column_name}</h6>
+                <div class="chart-content">
+                    <img src="data:image/png;base64,{img_base64}" style="max-width: 100%; height: auto;" />
+                </div>
+                <div class="chart-interpretation">
+                    <h6>📈 Summary:</h6>
+                    <p>This chart shows the frequency distribution of {column_name} grouped into {n_bins} bins. The data spans from {data.min():.2f} to {data.max():.2f}.</p>
+                </div>
+            </div>
+            '''
+            
+            return {
+                'success': True,
+                'chart_html': chart_html,
+                'chart_type': 'value_counts',
+                'statistics': {
+                    'bins_count': n_bins,
+                    'total_values': len(data),
+                    'min_value': float(data.min()),
+                    'max_value': float(data.max())
+                }
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Error creating numeric value counts: {str(e)}")
+            return {
+                'success': False,
+                'error': str(e),
+                'chart_html': f'<div class="error">Failed to create value counts chart: {str(e)}</div>'
+            }
+    
+    def _create_categorical_value_counts(self, data: pd.Series, column_name: str) -> Dict[str, Any]:
+        """Create value counts chart for categorical data"""
+        try:
+            value_counts = data.value_counts().head(20)
+            total_count = len(data)
+            percentages = (value_counts / total_count * 100).round(1)
+            
+            fig, ax = plt.subplots(figsize=(12, max(6, len(value_counts) * 0.4)))
+            
+            y_pos = np.arange(len(value_counts))
+            bars = ax.barh(y_pos, value_counts.values, color='lightgreen', alpha=0.7)
+            
+            ax.set_yticks(y_pos)
+            ax.set_yticklabels(value_counts.index, fontsize=9)
+            ax.set_xlabel('Frequency', fontsize=12)
+            ax.set_title(f'Value Counts of {column_name}', fontsize=14, fontweight='bold')
+            ax.grid(True, alpha=0.3, axis='x')
+            
+            for i, (bar, count, pct) in enumerate(zip(bars, value_counts.values, percentages.values)):
+                width = bar.get_width()
+                ax.text(width + max(value_counts.values) * 0.01, bar.get_y() + bar.get_height()/2, 
+                       f'{count} ({pct}%)', ha='left', va='center', fontsize=9)
+            
+            plt.tight_layout()
+            
+            img_buffer = io.BytesIO()
+            plt.savefig(img_buffer, format='png', dpi=150, bbox_inches='tight')
+            img_buffer.seek(0)
+            img_base64 = base64.b64encode(img_buffer.getvalue()).decode()
+            plt.close(fig)
+            
+            top_category_pct = percentages.iloc[0] if len(percentages) > 0 else 0
+            concentration_level = "High" if top_category_pct > 50 else "Medium" if top_category_pct > 20 else "Low"
+            
+            chart_html = f'''
+            <div class="chart-result">
+                <h6>📊 Value Counts - {column_name}</h6>
+                <div class="chart-content">
+                    <img src="data:image/png;base64,{img_base64}" style="max-width: 100%; height: auto;" />
+                </div>
+                <div class="chart-interpretation">
+                    <h6>📈 Analysis:</h6>
+                    <p>This chart shows the frequency distribution of categories in {column_name}. 
+                    The most frequent category is "{value_counts.index[0]}" with {value_counts.iloc[0]} occurrences ({percentages.iloc[0]}%).</p>
+                    <div class="stats-summary">
+                        <span><strong>Unique Categories:</strong> {data.nunique()}</span>
+                        <span><strong>Most Frequent:</strong> {value_counts.index[0]} ({top_category_pct}%)</span>
+                        <span><strong>Concentration:</strong> {concentration_level}</span>
+                        <span><strong>Showing:</strong> Top {len(value_counts)} of {data.nunique()} categories</span>
+                    </div>
+                </div>
+            </div>
+            '''
+            
+            return {
+                'success': True,
+                'chart_html': chart_html,
+                'chart_type': 'value_counts',
+                'statistics': {
+                    'unique_categories': data.nunique(),
+                    'most_frequent_category': value_counts.index[0],
+                    'most_frequent_count': int(value_counts.iloc[0]),
+                    'most_frequent_percentage': float(percentages.iloc[0]),
+                    'concentration_level': concentration_level
+                }
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Error creating categorical value counts: {str(e)}")
+            return {
+                'success': False,
+                'error': str(e),
+                'chart_html': f'<div class="error">Failed to create value counts chart: {str(e)}</div>'
+            }
+    
+    def _interpret_histogram(self, data: pd.Series, skewness: float, kurtosis: float) -> str:
+        """Generate interpretation for histogram"""
+        interpretation = []
+        
+        if abs(skewness) < 0.5:
+            interpretation.append("The distribution appears approximately symmetric")
+        elif skewness > 0.5:
+            interpretation.append("The distribution is right-skewed, with a longer tail extending to higher values")
+        else:
+            interpretation.append("The distribution is left-skewed, with a longer tail extending to lower values")
+        
+        if abs(kurtosis) < 1:
+            interpretation.append("The tail behavior is similar to a normal distribution")
+        elif kurtosis > 1:
+            interpretation.append("The distribution has heavy tails with more extreme values than expected")
+        else:
+            interpretation.append("The distribution has light tails with fewer extreme values")
+        
+        mean_val = data.mean()
+        median_val = data.median()
+        if abs(mean_val - median_val) / data.std() > 0.5:
+            interpretation.append("There is a significant difference between mean and median, indicating skewness")
+        
+        return ". ".join(interpretation) + "."
+    
+    def _interpret_boxplot(self, data: pd.Series, q1: float, q2: float, q3: float, iqr: float, outlier_pct: float) -> str:
+        """Generate interpretation for box plot"""
+        interpretation = []
+        
+        interpretation.append(f"The median value is {q2:.2f}")
+        
+        cv = data.std() / data.mean() if data.mean() != 0 else 0
+        if cv > 0.5:
+            interpretation.append("The data shows high variability")
+        elif cv < 0.1:
+            interpretation.append("The data shows low variability")
+        else:
+            interpretation.append("The data shows moderate variability")
+        
+        if outlier_pct > 5:
+            interpretation.append(f"There are {outlier_pct:.1f}% outliers, which may need investigation")
+        elif outlier_pct > 1:
+            interpretation.append(f"There are {outlier_pct:.1f}% outliers, which is within normal range")
+        else:
+            interpretation.append("Very few outliers detected")
+        
+        if (q3 - q2) > (q2 - q1):
+            interpretation.append("The upper quartile is more spread out than the lower quartile")
+        elif (q2 - q1) > (q3 - q2):
+            interpretation.append("The lower quartile is more spread out than the upper quartile")
+        else:
+            interpretation.append("The quartiles are relatively balanced")
+        
+        return ". ".join(interpretation) + "."

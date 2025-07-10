@@ -598,3 +598,26 @@ def analyze_relationships(dataset_id):
     except Exception as e:
         logging.error(f"Relationship analysis error: {str(e)}")
         return jsonify({'error': f"An unexpected server error occurred: {str(e)}"}), 500
+
+@column_analysis_bp.route('/generate_chart/<int:dataset_id>')
+def generate_chart(dataset_id):
+    try:
+        dataset = Dataset.query.get_or_404(dataset_id)
+        analyzer = ColumnAnalysis()
+        
+        column = request.args.get('column')
+        chart_type = request.args.get('chart_type', 'histogram')
+        
+        if not column:
+            return jsonify({'error': 'Column parameter is required'}), 400
+        
+        chart_result = analyzer.generate_chart(dataset.file_path, column, chart_type)
+        
+        return jsonify({
+            'success': chart_result.get('success', True),
+            'chart': chart_result
+        })
+        
+    except Exception as e:
+        logging.error(f"Chart generation error: {str(e)}")
+        return jsonify({'error': f"An unexpected server error occurred: {str(e)}"}), 500
