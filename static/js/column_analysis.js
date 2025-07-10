@@ -1,8 +1,9 @@
+// Global variables (moved outside DOMContentLoaded for global access)
+let currentDatasetId = null;
+let currentColumns = []; // Stores { name: 'col_name', type: 'dtype' }
+let currentColumn = null; // Stores the selected column's full info object
+
 document.addEventListener('DOMContentLoaded', function() {
-    // Global variables
-    let currentDatasetId = null;
-    let currentColumns = []; // Stores { name: 'col_name', type: 'dtype' }
-    let currentColumn = null; // Stores the selected column's full info object
 
     // DOM Elements
     const datasetSelect = document.getElementById('column-dataset-select');
@@ -55,9 +56,9 @@ document.addEventListener('DOMContentLoaded', function() {
         document.getElementById('analyze-relationship').addEventListener('click', analyzeRelationship);
 
         // Distribution buttons
-        document.getElementById('show-histogram').addEventListener('click', () => showDistribution('histogram'));
-        document.getElementById('show-boxplot').addEventListener('click', () => showDistribution('boxplot'));
-        document.getElementById('show-value-counts').addEventListener('click', () => showDistribution('value_counts'));
+        document.getElementById('show-histogram').addEventListener('click', () => showDistributionChart('histogram'));
+        document.getElementById('show-boxplot').addEventListener('click', () => showDistributionChart('boxplot'));
+        document.getElementById('show-value-counts').addEventListener('click', () => showDistributionChart('value_counts'));
     }
 
     async function loadDatasets() {
@@ -214,7 +215,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
                 // Populate different analysis sections based on the API response
                 displayBasicStats(analysis); // Pass full analysis object
-                displayDistribution(analysis.distribution_summary, analysis.data_type); // Pass data_type to handle numeric/categorical
+                displayDistribution(analysis.distribution_summary, analysis.data_type, analysis); // Pass full analysis for distribution
                 displayPatterns(analysis.insights); // Using insights as a placeholder for patterns
                 displayQuality(analysis.quality_metrics); // Assuming quality_metrics is a dict
 
@@ -379,9 +380,14 @@ document.addEventListener('DOMContentLoaded', function() {
         container.innerHTML = html;
     }
 
-    function displayDistribution(distributionData, dataType) {
+    function displayDistribution(distributionData, dataType, fullAnalysis) {
         const container = document.getElementById('distribution-content');
         container.innerHTML = ''; // Clear previous content
+
+        // Store current distribution data globally for chart functions
+        window.currentDistributionData = distributionData;
+        window.currentDistributionType = dataType;
+        window.currentFullAnalysis = fullAnalysis;
 
         if (!distributionData || Object.keys(distributionData).length === 0) {
             container.innerHTML = '<p>Distribution data not available. Click "Analyze Column" to load distribution data.</p>';
@@ -468,7 +474,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 </div>
                 <div class="stat-item">
                     <strong>CONCENTRATION</strong>
-                    <span>${safeFormat(distributionData.concentration * 100, 1)}%</span>
+                    <span>${distributionData.concentration ? safeFormat(distributionData.concentration * 100, 1) + '%' : 'N/A'}</span>
                 </div>
                 <div class="stat-item">
                     <strong>ENTROPY</strong>
@@ -501,11 +507,13 @@ document.addEventListener('DOMContentLoaded', function() {
             html += '</div>';
         }
         
-        // Chart placeholder for future visualization
-        html += '<div class="chart-placeholder">';
-        html += '<h6>📊 Visualization Area</h6>';
-        html += '<p>Interactive charts (Histogram, Box Plot, Distribution Plot) will be displayed here.</p>';
-        html += '<p>Use the buttons below to generate specific visualizations:</p>';
+        // Interactive chart area
+        html += '<div class="chart-visualization" id="chart-visualization">';
+        html += '<h6>📊 Interactive Visualizations</h6>';
+        html += '<p>Use the buttons above to generate specific visualizations:</p>';
+        html += '<div class="chart-container" id="chart-container">';
+        html += '<div class="chart-placeholder">Select a visualization type to display charts here</div>';
+        html += '</div>';
         html += '</div>';
         
         html += '</div>';
@@ -909,12 +917,300 @@ document.addEventListener('DOMContentLoaded', function() {
             if (!response.ok) throw new Error('Failed to fetch distribution data');
             const data = await response.json();
             if (data.success && data.distribution) {
-                displayDistribution(data.distribution, currentColumn.type);
+                displayDistribution(data.distribution, currentColumn.type, data);
             }
         } catch (error) {
             console.error("Error fetching distribution data:", error);
             document.getElementById('distribution-content').innerHTML = '<p>Could not fetch distribution data.</p>';
         }
+    }
+
+    // --- Distribution Chart Functions ---
+    async function showDistributionChart(chartType) {
+        if (!currentDatasetId || !currentColumn) {
+            showError('Please select a dataset and column first.');
+            return;
+        }
+
+        const chartContainer = document.getElementById('chart-container');
+        if (!chartContainer) {
+            showError('Chart container not found. Please analyze the column first.');
+            return;
+        }
+
+        showLoading();
+        
+        try {
+            // Fetch fresh distribution data for charts
+            const response = await fetch(`/api/column_analysis/distribution/${currentDatasetId}?column=${encodeURIComponent(currentColumn.name)}`);
+            if (!response.ok) throw new Error('Failed to fetch distribution data');
+            const data = await response.json();
+
+            if (data.success && data.distribution) {
+                const distributionData = data.distribution;
+                const dataType = currentColumn.type || data.distribution.data_type;
+                
+                let chartHtml = '';
+                
+                switch(chartType) {
+                    case 'histogram':
+                        chartHtml = generateHistogram(distributionData, dataType);
+                        break;
+                    case 'boxplot':
+                        chartHtml = generateBoxPlot(distributionData, dataType);
+                        break;
+                    case 'value_counts':
+                        chartHtml = generateValueCounts(distributionData, dataType);
+                        break;
+                    default:
+                        chartHtml = '<p>Unknown chart type</p>';
+                }
+                
+                chartContainer.innerHTML = chartHtml;
+            } else {
+                throw new Error('No distribution data available');
+            }
+        } catch (error) {
+            console.error('Chart generation error:', error);
+            chartContainer.innerHTML = '<div class="error-message">Failed to generate chart: ' + error.message + '</div>';
+        } finally {
+            hideLoading();
+        }
+    }
+
+    function generateHistogram(distributionData, dataType) {
+        if (dataType && (dataType.toLowerCase().includes('int') || dataType.toLowerCase().includes('float'))) {
+            // Numeric histogram simulation
+            const mean = distributionData.mean || 0;
+            const std = distributionData.std || 1;
+            const min = distributionData.min || 0;
+            const max = distributionData.max || 100;
+            
+            return `
+                <div class="chart-result">
+                    <h6>📊 Histogram - ${currentColumn.name}</h6>
+                    <div class="histogram-chart">
+                        <div class="histogram-info">
+                            <p><strong>Data Range:</strong> ${safeFormat(min)} to ${safeFormat(max)}</p>
+                            <p><strong>Mean:</strong> ${safeFormat(mean)} | <strong>Std Dev:</strong> ${safeFormat(std)}</p>
+                        </div>
+                        <div class="histogram-bars">
+                            ${generateHistogramBars(distributionData)}
+                        </div>
+                        <div class="histogram-labels">
+                            <span>Min (${safeFormat(min)})</span>
+                            <span>Mean (${safeFormat(mean)})</span>
+                            <span>Max (${safeFormat(max)})</span>
+                        </div>
+                    </div>
+                    <div class="chart-interpretation">
+                        <h6>📈 Interpretation:</h6>
+                        <p>${interpretHistogram(distributionData)}</p>
+                    </div>
+                </div>
+            `;
+        } else {
+            return `
+                <div class="chart-result">
+                    <h6>📊 Histogram - ${currentColumn.name}</h6>
+                    <p class="chart-note">Histogram is not applicable for categorical data. Use Value Counts instead.</p>
+                    <button onclick="showDistributionChart('value_counts')" class="btn btn-primary">Show Value Counts</button>
+                </div>
+            `;
+        }
+    }
+
+    function generateBoxPlot(distributionData, dataType) {
+        if (dataType && (dataType.toLowerCase().includes('int') || dataType.toLowerCase().includes('float'))) {
+            const q1 = distributionData.q1 || (distributionData.mean - distributionData.std);
+            const q2 = distributionData.median || distributionData.mean;
+            const q3 = distributionData.q3 || (distributionData.mean + distributionData.std);
+            const min = distributionData.min || 0;
+            const max = distributionData.max || 100;
+            
+            return `
+                <div class="chart-result">
+                    <h6>📦 Box Plot - ${currentColumn.name}</h6>
+                    <div class="boxplot-chart">
+                        <div class="boxplot-container">
+                            ${generateBoxPlotVisualization(min, q1, q2, q3, max)}
+                        </div>
+                        <div class="boxplot-stats">
+                            <div class="boxplot-stat">
+                                <strong>Min:</strong> ${safeFormat(min)}
+                            </div>
+                            <div class="boxplot-stat">
+                                <strong>Q1:</strong> ${safeFormat(q1)}
+                            </div>
+                            <div class="boxplot-stat">
+                                <strong>Median:</strong> ${safeFormat(q2)}
+                            </div>
+                            <div class="boxplot-stat">
+                                <strong>Q3:</strong> ${safeFormat(q3)}
+                            </div>
+                            <div class="boxplot-stat">
+                                <strong>Max:</strong> ${safeFormat(max)}
+                            </div>
+                        </div>
+                    </div>
+                    <div class="chart-interpretation">
+                        <h6>📊 Interpretation:</h6>
+                        <p>${interpretBoxPlot(distributionData)}</p>
+                    </div>
+                </div>
+            `;
+        } else {
+            return `
+                <div class="chart-result">
+                    <h6>📦 Box Plot - ${currentColumn.name}</h6>
+                    <p class="chart-note">Box Plot is not applicable for categorical data. Use Value Counts instead.</p>
+                    <button onclick="showDistributionChart('value_counts')" class="btn btn-primary">Show Value Counts</button>
+                </div>
+            `;
+        }
+    }
+
+    function generateValueCounts(distributionData, dataType) {
+        const valueCounts = distributionData.value_counts || {};
+        const totalCount = distributionData.count || Object.values(valueCounts).reduce((a, b) => a + b, 0) || 1;
+        
+        return `
+            <div class="chart-result">
+                <h6>📊 Value Counts - ${currentColumn.name}</h6>
+                <div class="value-counts-chart">
+                    <div class="value-counts-header">
+                        <span>Value</span>
+                        <span>Count</span>
+                        <span>Percentage</span>
+                        <span>Bar</span>
+                    </div>
+                    ${generateValueCountsBars(valueCounts, totalCount)}
+                </div>
+                <div class="chart-interpretation">
+                    <h6>📈 Summary:</h6>
+                    <p>Showing top ${Object.keys(valueCounts).length} values. 
+                    ${dataType && (dataType.toLowerCase().includes('int') || dataType.toLowerCase().includes('float')) ? 
+                        'This shows the frequency distribution of values in the numeric column.' : 
+                        'This shows the frequency distribution of categories.'}</p>
+                </div>
+            </div>
+        `;
+    }
+
+    function generateHistogramBars(distributionData) {
+        // Simulate histogram bars based on statistical properties
+        const bars = [];
+        const mean = distributionData.mean || 0;
+        const std = distributionData.std || 1;
+        const skewness = distributionData.skewness || 0;
+        
+        // Generate 10 bars representing the distribution
+        for (let i = 0; i < 10; i++) {
+            const position = i / 9; // 0 to 1
+            let height;
+            
+            if (Math.abs(skewness) < 0.5) {
+                // Normal-like distribution
+                height = Math.exp(-Math.pow((position - 0.5) * 4, 2)) * 100;
+            } else if (skewness > 0) {
+                // Right-skewed
+                height = Math.exp(-Math.pow((position - 0.2) * 3, 2)) * 100;
+            } else {
+                // Left-skewed
+                height = Math.exp(-Math.pow((position - 0.8) * 3, 2)) * 100;
+            }
+            
+            bars.push(`<div class="histogram-bar" style="height: ${height}%; background: linear-gradient(to top, #3b82f6, #60a5fa);"></div>`);
+        }
+        
+        return bars.join('');
+    }
+
+    function generateBoxPlotVisualization(min, q1, median, q3, max) {
+        return `
+            <div class="boxplot-visual">
+                <div class="boxplot-whisker-left" style="left: 0%; width: 20%;"></div>
+                <div class="boxplot-box" style="left: 20%; width: 60%;">
+                    <div class="boxplot-median" style="left: 50%;"></div>
+                </div>
+                <div class="boxplot-whisker-right" style="left: 80%; width: 20%;"></div>
+                <div class="boxplot-labels">
+                    <span style="left: 0%;">Min</span>
+                    <span style="left: 20%;">Q1</span>
+                    <span style="left: 50%;">Median</span>
+                    <span style="left: 80%;">Q3</span>
+                    <span style="left: 100%;">Max</span>
+                </div>
+            </div>
+        `;
+    }
+
+    function generateValueCountsBars(valueCounts, totalCount) {
+        const entries = Object.entries(valueCounts).slice(0, 20); // Top 20 values
+        const maxCount = Math.max(...Object.values(valueCounts));
+        
+        return entries.map(([value, count]) => {
+            const percentage = ((count / totalCount) * 100).toFixed(1);
+            const barWidth = (count / maxCount) * 100;
+            
+            return `
+                <div class="value-count-row">
+                    <span class="value-label">${value}</span>
+                    <span class="count-value">${count.toLocaleString()}</span>
+                    <span class="percentage-value">${percentage}%</span>
+                    <div class="count-bar-container">
+                        <div class="count-bar" style="width: ${barWidth}%; background: linear-gradient(90deg, #10b981, #34d399);"></div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    function interpretHistogram(distributionData) {
+        const skewness = distributionData.skewness || 0;
+        const kurtosis = distributionData.kurtosis || 0;
+        
+        let interpretation = '';
+        
+        if (Math.abs(skewness) < 0.5) {
+            interpretation += 'The distribution appears approximately symmetric. ';
+        } else if (skewness > 0.5) {
+            interpretation += 'The distribution is right-skewed with a longer tail extending to higher values. ';
+        } else {
+            interpretation += 'The distribution is left-skewed with a longer tail extending to lower values. ';
+        }
+        
+        if (Math.abs(kurtosis) < 1) {
+            interpretation += 'The tail behavior is similar to a normal distribution.';
+        } else if (kurtosis > 1) {
+            interpretation += 'The distribution has heavy tails with more extreme values than expected.';
+        } else {
+            interpretation += 'The distribution has light tails with fewer extreme values.';
+        }
+        
+        return interpretation;
+    }
+
+    function interpretBoxPlot(distributionData) {
+        const median = distributionData.median || distributionData.mean || 0;
+        const mean = distributionData.mean || 0;
+        const skewness = distributionData.skewness || 0;
+        
+        let interpretation = `The median value is ${safeFormat(median)}. `;
+        
+        if (Math.abs(mean - median) > (distributionData.std || 1) * 0.5) {
+            interpretation += 'There is a notable difference between mean and median, suggesting skewness. ';
+        }
+        
+        if (Math.abs(skewness) > 0.5) {
+            interpretation += skewness > 0 ? 
+                'The distribution is skewed right, with outliers likely in the upper range. ' :
+                'The distribution is skewed left, with outliers likely in the lower range. ';
+        } else {
+            interpretation += 'The distribution appears relatively balanced. ';
+        }
+        
+        return interpretation;
     }
 
     async function fetchPatternsData() {
@@ -1831,6 +2127,262 @@ const columnAnalysisCSS = `
     border-left: 3px solid #10b981;
     font-size: 0.9em;
 }
+
+/* Chart visualization styles */
+.chart-visualization {
+    margin-top: 25px;
+    padding: 20px;
+    background: white;
+    border-radius: 12px;
+    border: 1px solid #e2e8f0;
+}
+
+.chart-container {
+    margin-top: 15px;
+    padding: 20px;
+    border-radius: 8px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+}
+
+.chart-result {
+    background: white;
+    padding: 20px;
+    border-radius: 12px;
+    border: 1px solid #e2e8f0;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+}
+
+.chart-result h6 {
+    margin: 0 0 15px 0;
+    color: #1e293b;
+    font-size: 1.2em;
+    border-bottom: 2px solid #3b82f6;
+    padding-bottom: 8px;
+}
+
+.chart-note {
+    background: #fef3c7;
+    color: #92400e;
+    padding: 15px;
+    border-radius: 8px;
+    border-left: 4px solid #f59e0b;
+    margin: 15px 0;
+}
+
+.chart-interpretation {
+    background: #f0f9ff;
+    padding: 15px;
+    border-radius: 8px;
+    border-left: 4px solid #0ea5e9;
+    margin-top: 20px;
+}
+
+/* Histogram styles */
+.histogram-chart {
+    margin: 20px 0;
+}
+
+.histogram-info {
+    background: #f8fafc;
+    padding: 12px;
+    border-radius: 6px;
+    margin-bottom: 15px;
+    border: 1px solid #e2e8f0;
+}
+
+.histogram-bars {
+    display: flex;
+    align-items: end;
+    height: 200px;
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 10px;
+    gap: 5px;
+}
+
+.histogram-bar {
+    flex: 1;
+    min-height: 10px;
+    border-radius: 4px 4px 0 0;
+    transition: all 0.3s ease;
+    cursor: pointer;
+}
+
+.histogram-bar:hover {
+    opacity: 0.8;
+    transform: scaleY(1.05);
+}
+
+.histogram-labels {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 10px;
+    font-size: 0.9em;
+    color: #6b7280;
+}
+
+/* Box plot styles */
+.boxplot-chart {
+    margin: 20px 0;
+}
+
+.boxplot-container {
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 30px 20px;
+    margin: 20px 0;
+}
+
+.boxplot-visual {
+    position: relative;
+    height: 60px;
+    width: 100%;
+    background: linear-gradient(90deg, #f1f5f9 0%, #e2e8f0 50%, #f1f5f9 100%);
+    border-radius: 4px;
+}
+
+.boxplot-whisker-left, .boxplot-whisker-right {
+    position: absolute;
+    top: 25px;
+    height: 10px;
+    background: #374151;
+    border-radius: 2px;
+}
+
+.boxplot-box {
+    position: absolute;
+    top: 15px;
+    height: 30px;
+    background: linear-gradient(135deg, #dbeafe 0%, #93c5fd 100%);
+    border: 2px solid #2563eb;
+    border-radius: 4px;
+}
+
+.boxplot-median {
+    position: absolute;
+    top: 0;
+    width: 3px;
+    height: 100%;
+    background: #dc2626;
+    border-radius: 2px;
+}
+
+.boxplot-labels {
+    position: absolute;
+    top: 70px;
+    width: 100%;
+}
+
+.boxplot-labels span {
+    position: absolute;
+    font-size: 0.8em;
+    color: #374151;
+    transform: translateX(-50%);
+}
+
+.boxplot-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+    gap: 15px;
+    margin-top: 20px;
+}
+
+.boxplot-stat {
+    background: #f8fafc;
+    padding: 10px;
+    border-radius: 6px;
+    text-align: center;
+    border: 1px solid #e2e8f0;
+}
+
+/* Value counts chart styles */
+.value-counts-chart {
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    overflow: hidden;
+    margin: 15px 0;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.value-counts-header {
+    display: grid;
+    grid-template-columns: 2fr 1fr 1fr 3fr;
+    gap: 15px;
+    background: #f8fafc;
+    padding: 12px 15px;
+    font-weight: 600;
+    color: #374151;
+    border-bottom: 2px solid #e2e8f0;
+}
+
+.value-count-row {
+    display: grid;
+    grid-template-columns: 2fr 1fr 1fr 3fr;
+    gap: 15px;
+    padding: 10px 15px;
+    border-bottom: 1px solid #f1f5f9;
+    align-items: center;
+    transition: background-color 0.2s ease;
+}
+
+.value-count-row:hover {
+    background: #f8fafc;
+}
+
+.value-label {
+    font-weight: 500;
+    color: #374151;
+    word-break: break-word;
+}
+
+.count-value {
+    text-align: center;
+    font-family: monospace;
+    color: #1e293b;
+    font-weight: 600;
+}
+
+.percentage-value {
+    text-align: center;
+    color: #6b7280;
+    font-size: 0.9em;
+}
+
+.count-bar-container {
+    position: relative;
+    height: 20px;
+    background: #f1f5f9;
+    border-radius: 10px;
+    overflow: hidden;
+}
+
+.count-bar {
+    height: 100%;
+    border-radius: 10px;
+    transition: width 0.8s ease;
+    position: relative;
+}
+
+.count-bar::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.3) 50%, transparent 100%);
+    animation: shimmer 2s infinite;
+}
+
+@keyframes shimmer {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+}
 </style>
 `;
 
@@ -1866,3 +2418,303 @@ window.downloadJsonData = function(filename, data) {
         alert('❌ Failed to download file: ' + error.message);
     }
 };
+
+// Global utility functions
+function safeFormat(value, decimals = 3) {
+    if (value === null || value === undefined || isNaN(value)) {
+        return 'N/A';
+    }
+    return typeof value === 'number' ? value.toFixed(decimals) : value;
+}
+
+// Global functions exposed to window for HTML onclick handlers
+window.showDistributionChart = async function(chartType) {
+    if (!currentDatasetId || !currentColumn) {
+        alert('Please select a dataset and column first.');
+        return;
+    }
+
+    const chartContainer = document.getElementById('chart-container');
+    if (!chartContainer) {
+        alert('Chart container not found. Please analyze the column first.');
+        return;
+    }
+
+    // Show loading
+    const loadingModal = document.getElementById('column-loading-modal');
+    if (loadingModal) loadingModal.style.display = 'flex';
+    
+    try {
+        // Fetch fresh distribution data for charts
+        const response = await fetch(`/api/column_analysis/distribution/${currentDatasetId}?column=${encodeURIComponent(currentColumn.name)}`);
+        if (!response.ok) throw new Error('Failed to fetch distribution data');
+        const data = await response.json();
+
+        if (data.success && data.distribution) {
+            const distributionData = data.distribution;
+            const dataType = currentColumn.type || data.distribution.data_type;
+            
+            let chartHtml = '';
+            
+            switch(chartType) {
+                case 'histogram':
+                    chartHtml = generateHistogramChart(distributionData, dataType);
+                    break;
+                case 'boxplot':
+                    chartHtml = generateBoxPlotChart(distributionData, dataType);
+                    break;
+                case 'value_counts':
+                    chartHtml = generateValueCountsChart(distributionData, dataType);
+                    break;
+                default:
+                    chartHtml = '<p>Unknown chart type</p>';
+            }
+            
+            chartContainer.innerHTML = chartHtml;
+        } else {
+            throw new Error('No distribution data available');
+        }
+    } catch (error) {
+        console.error('Chart generation error:', error);
+        chartContainer.innerHTML = '<div class="error-message">Failed to generate chart: ' + error.message + '</div>';
+    } finally {
+        // Hide loading
+        if (loadingModal) loadingModal.style.display = 'none';
+    }
+};
+
+// Global chart generation functions
+function generateHistogramChart(distributionData, dataType) {
+    if (dataType && (dataType.toLowerCase().includes('int') || dataType.toLowerCase().includes('float'))) {
+        // Numeric histogram simulation
+        const mean = distributionData.mean || 0;
+        const std = distributionData.std || 1;
+        const min = distributionData.min || 0;
+        const max = distributionData.max || 100;
+        
+        return `
+            <div class="chart-result">
+                <h6>📊 Histogram - ${currentColumn?.name || 'Unknown Column'}</h6>
+                <div class="histogram-chart">
+                    <div class="histogram-info">
+                        <p><strong>Data Range:</strong> ${safeFormat(min)} to ${safeFormat(max)}</p>
+                        <p><strong>Mean:</strong> ${safeFormat(mean)} | <strong>Std Dev:</strong> ${safeFormat(std)}</p>
+                    </div>
+                    <div class="histogram-bars">
+                        ${generateGlobalHistogramBars(distributionData)}
+                    </div>
+                    <div class="histogram-labels">
+                        <span>Min (${safeFormat(min)})</span>
+                        <span>Mean (${safeFormat(mean)})</span>
+                        <span>Max (${safeFormat(max)})</span>
+                    </div>
+                </div>
+                <div class="chart-interpretation">
+                    <h6>📈 Interpretation:</h6>
+                    <p>${interpretGlobalHistogram(distributionData)}</p>
+                </div>
+            </div>
+        `;
+    } else {
+        return `
+            <div class="chart-result">
+                <h6>📊 Histogram - ${currentColumn?.name || 'Unknown Column'}</h6>
+                <p class="chart-note">Histogram is not applicable for categorical data. Use Value Counts instead.</p>
+                <button onclick="showDistributionChart('value_counts')" class="btn btn-primary">Show Value Counts</button>
+            </div>
+        `;
+    }
+}
+
+function generateBoxPlotChart(distributionData, dataType) {
+    if (dataType && (dataType.toLowerCase().includes('int') || dataType.toLowerCase().includes('float'))) {
+        const q1 = distributionData.q1 || (distributionData.mean - distributionData.std);
+        const q2 = distributionData.median || distributionData.mean;
+        const q3 = distributionData.q3 || (distributionData.mean + distributionData.std);
+        const min = distributionData.min || 0;
+        const max = distributionData.max || 100;
+        
+        return `
+            <div class="chart-result">
+                <h6>📦 Box Plot - ${currentColumn?.name || 'Unknown Column'}</h6>
+                <div class="boxplot-chart">
+                    <div class="boxplot-container">
+                        ${generateGlobalBoxPlotVisualization(min, q1, q2, q3, max)}
+                    </div>
+                    <div class="boxplot-stats">
+                        <div class="boxplot-stat">
+                            <strong>Min:</strong> ${safeFormat(min)}
+                        </div>
+                        <div class="boxplot-stat">
+                            <strong>Q1:</strong> ${safeFormat(q1)}
+                        </div>
+                        <div class="boxplot-stat">
+                            <strong>Median:</strong> ${safeFormat(q2)}
+                        </div>
+                        <div class="boxplot-stat">
+                            <strong>Q3:</strong> ${safeFormat(q3)}
+                        </div>
+                        <div class="boxplot-stat">
+                            <strong>Max:</strong> ${safeFormat(max)}
+                        </div>
+                    </div>
+                </div>
+                <div class="chart-interpretation">
+                    <h6>📊 Interpretation:</h6>
+                    <p>${interpretGlobalBoxPlot(distributionData)}</p>
+                </div>
+            </div>
+        `;
+    } else {
+        return `
+            <div class="chart-result">
+                <h6>📦 Box Plot - ${currentColumn?.name || 'Unknown Column'}</h6>
+                <p class="chart-note">Box Plot is not applicable for categorical data. Use Value Counts instead.</p>
+                <button onclick="showDistributionChart('value_counts')" class="btn btn-primary">Show Value Counts</button>
+            </div>
+        `;
+    }
+}
+
+function generateValueCountsChart(distributionData, dataType) {
+    const valueCounts = distributionData.value_counts || {};
+    const totalCount = distributionData.count || Object.values(valueCounts).reduce((a, b) => a + b, 0) || 1;
+    
+    return `
+        <div class="chart-result">
+            <h6>📊 Value Counts - ${currentColumn?.name || 'Unknown Column'}</h6>
+            <div class="value-counts-chart">
+                <div class="value-counts-header">
+                    <span>Value</span>
+                    <span>Count</span>
+                    <span>Percentage</span>
+                    <span>Bar</span>
+                </div>
+                ${generateGlobalValueCountsBars(valueCounts, totalCount)}
+            </div>
+            <div class="chart-interpretation">
+                <h6>📈 Summary:</h6>
+                <p>Showing top ${Object.keys(valueCounts).length} values. 
+                ${dataType && (dataType.toLowerCase().includes('int') || dataType.toLowerCase().includes('float')) ? 
+                    'This shows the frequency distribution of values in the numeric column.' : 
+                    'This shows the frequency distribution of categories.'}</p>
+            </div>
+        </div>
+    `;
+}
+
+function generateGlobalHistogramBars(distributionData) {
+    // Simulate histogram bars based on statistical properties
+    const bars = [];
+    const mean = distributionData.mean || 0;
+    const std = distributionData.std || 1;
+    const skewness = distributionData.skewness || 0;
+    
+    // Generate 10 bars representing the distribution
+    for (let i = 0; i < 10; i++) {
+        const position = i / 9; // 0 to 1
+        let height;
+        
+        if (Math.abs(skewness) < 0.5) {
+            // Normal-like distribution
+            height = Math.exp(-Math.pow((position - 0.5) * 4, 2)) * 100;
+        } else if (skewness > 0) {
+            // Right-skewed
+            height = Math.exp(-Math.pow((position - 0.2) * 3, 2)) * 100;
+        } else {
+            // Left-skewed
+            height = Math.exp(-Math.pow((position - 0.8) * 3, 2)) * 100;
+        }
+        
+        bars.push(`<div class="histogram-bar" style="height: ${height}%; background: linear-gradient(to top, #3b82f6, #60a5fa);"></div>`);
+    }
+    
+    return bars.join('');
+}
+
+function generateGlobalBoxPlotVisualization(min, q1, median, q3, max) {
+    return `
+        <div class="boxplot-visual">
+            <div class="boxplot-whisker-left" style="left: 0%; width: 20%;"></div>
+            <div class="boxplot-box" style="left: 20%; width: 60%;">
+                <div class="boxplot-median" style="left: 50%;"></div>
+            </div>
+            <div class="boxplot-whisker-right" style="left: 80%; width: 20%;"></div>
+            <div class="boxplot-labels">
+                <span style="left: 0%;">Min</span>
+                <span style="left: 20%;">Q1</span>
+                <span style="left: 50%;">Median</span>
+                <span style="left: 80%;">Q3</span>
+                <span style="left: 100%;">Max</span>
+            </div>
+        </div>
+    `;
+}
+
+function generateGlobalValueCountsBars(valueCounts, totalCount) {
+    const entries = Object.entries(valueCounts).slice(0, 20); // Top 20 values
+    const maxCount = Math.max(...Object.values(valueCounts));
+    
+    return entries.map(([value, count]) => {
+        const percentage = ((count / totalCount) * 100).toFixed(1);
+        const barWidth = (count / maxCount) * 100;
+        
+        return `
+            <div class="value-count-row">
+                <span class="value-label">${value}</span>
+                <span class="count-value">${count.toLocaleString()}</span>
+                <span class="percentage-value">${percentage}%</span>
+                <div class="count-bar-container">
+                    <div class="count-bar" style="width: ${barWidth}%; background: linear-gradient(90deg, #10b981, #34d399);"></div>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function interpretGlobalHistogram(distributionData) {
+    const skewness = distributionData.skewness || 0;
+    const kurtosis = distributionData.kurtosis || 0;
+    
+    let interpretation = '';
+    
+    if (Math.abs(skewness) < 0.5) {
+        interpretation += 'The distribution appears approximately symmetric. ';
+    } else if (skewness > 0.5) {
+        interpretation += 'The distribution is right-skewed with a longer tail extending to higher values. ';
+    } else {
+        interpretation += 'The distribution is left-skewed with a longer tail extending to lower values. ';
+    }
+    
+    if (Math.abs(kurtosis) < 1) {
+        interpretation += 'The tail behavior is similar to a normal distribution.';
+    } else if (kurtosis > 1) {
+        interpretation += 'The distribution has heavy tails with more extreme values than expected.';
+    } else {
+        interpretation += 'The distribution has light tails with fewer extreme values.';
+    }
+    
+    return interpretation;
+}
+
+function interpretGlobalBoxPlot(distributionData) {
+    const median = distributionData.median || distributionData.mean || 0;
+    const mean = distributionData.mean || 0;
+    const skewness = distributionData.skewness || 0;
+    
+    let interpretation = `The median value is ${safeFormat(median)}. `;
+    
+    if (Math.abs(mean - median) > (distributionData.std || 1) * 0.5) {
+        interpretation += 'There is a notable difference between mean and median, suggesting skewness. ';
+    }
+    
+    if (Math.abs(skewness) > 0.5) {
+        interpretation += skewness > 0 ? 
+            'The distribution is skewed right, with outliers likely in the upper range. ' :
+            'The distribution is skewed left, with outliers likely in the lower range. ';
+    } else {
+        interpretation += 'The distribution appears relatively balanced. ';
+    }
+    
+    return interpretation;
+}
