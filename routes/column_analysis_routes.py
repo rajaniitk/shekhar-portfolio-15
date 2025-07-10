@@ -483,22 +483,30 @@ def encode_column(dataset_id):
         else:
             recommendations.append("Label encoding or ordinal encoding suitable for medium cardinality")
         
+        # Convert numpy types to native Python types for JSON serialization
+        encoding_analysis = {
+            'column': column,
+            'encoding_method': encoding_type,
+            'column_info': {
+                'unique_values': int(unique_values),
+                'most_frequent': str(value_counts.index[0]) if len(value_counts) > 0 else None,
+                'data_type': str(data.dtype)
+            },
+            'encoding_details': {
+                'description': selected_encoding['description'],
+                'suitable_for': selected_encoding['suitable_for'],
+                'output_columns': int(selected_encoding['output_columns']),
+                'memory_efficient': bool(selected_encoding['memory_efficient'])
+            },
+            'recommendations': recommendations,
+            'preview_mapping': {str(k): int(v) for k, v in value_counts.head(10).items()},
+            'status': 'analysis_completed'
+        }
+        
         return jsonify({
             'success': True,
             'message': f'Column "{column}" encoding analysis completed',
-            'encoding_analysis': {
-                'column': column,
-                'encoding_method': encoding_type,
-                'column_info': {
-                    'unique_values': unique_values,
-                    'most_frequent': value_counts.index[0] if len(value_counts) > 0 else None,
-                    'data_type': str(data.dtype)
-                },
-                'encoding_details': selected_encoding,
-                'recommendations': recommendations,
-                'preview_mapping': dict(value_counts.head(10)),
-                'status': 'analysis_completed'
-            }
+            'encoding_analysis': analyzer._convert_numpy_types(encoding_analysis)
         })
         
     except Exception as e:

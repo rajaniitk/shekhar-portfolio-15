@@ -511,7 +511,7 @@ document.addEventListener('DOMContentLoaded', function() {
         html += '<div class="chart-visualization" id="chart-visualization">';
         html += '<h6>📊 Interactive Visualizations</h6>';
         html += '<p>Use the buttons above to generate specific visualizations:</p>';
-        html += '<div class="chart-container" id="chart-container">';
+        html += '<div class="chart-visualization-area" id="chart-visualization-area">';
         html += '<div class="chart-placeholder">Select a visualization type to display charts here</div>';
         html += '</div>';
         html += '</div>';
@@ -932,7 +932,7 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
-        const chartContainer = document.getElementById('chart-container');
+        const chartContainer = document.getElementById('distribution-content');
         if (!chartContainer) {
             showError('Chart container not found. Please analyze the column first.');
             return;
@@ -2118,7 +2118,7 @@ const columnAnalysisCSS = `
     border: 1px solid #e2e8f0;
 }
 
-.chart-container {
+.chart-visualization-area {
     margin-top: 15px;
     padding: 20px;
     border-radius: 8px;
@@ -2415,7 +2415,7 @@ window.showDistributionChart = async function(chartType) {
         return;
     }
 
-    const chartContainer = document.getElementById('chart-container');
+    const chartContainer = document.getElementById('distribution-content');
     if (!chartContainer) {
         alert('Chart container not found. Please analyze the column first.');
         return;
@@ -2426,34 +2426,15 @@ window.showDistributionChart = async function(chartType) {
     if (loadingModal) loadingModal.style.display = 'flex';
     
     try {
-        // Fetch fresh distribution data for charts
-        const response = await fetch(`/api/column_analysis/distribution/${currentDatasetId}?column=${encodeURIComponent(currentColumn.name)}`);
-        if (!response.ok) throw new Error('Failed to fetch distribution data');
+        // Use backend chart generation
+        const response = await fetch(`/api/column_analysis/generate_chart/${currentDatasetId}?column=${encodeURIComponent(currentColumn.name)}&chart_type=${chartType}`);
+        if (!response.ok) throw new Error('Failed to generate chart');
         const data = await response.json();
 
-        if (data.success && data.distribution) {
-            const distributionData = data.distribution;
-            const dataType = currentColumn.type || data.distribution.data_type;
-            
-            let chartHtml = '';
-            
-            switch(chartType) {
-                case 'histogram':
-                    chartHtml = generateHistogramChart(distributionData, dataType);
-                    break;
-                case 'boxplot':
-                    chartHtml = generateBoxPlotChart(distributionData, dataType);
-                    break;
-                case 'value_counts':
-                    chartHtml = generateValueCountsChart(distributionData, dataType);
-                    break;
-                default:
-                    chartHtml = '<p>Unknown chart type</p>';
-            }
-            
-            chartContainer.innerHTML = chartHtml;
+        if (data.success && data.chart) {
+            chartContainer.innerHTML = data.chart.chart_html;
         } else {
-            throw new Error('No distribution data available');
+            throw new Error(data.chart?.error || 'Failed to generate chart');
         }
     } catch (error) {
         console.error('Chart generation error:', error);
