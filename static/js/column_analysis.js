@@ -213,7 +213,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 displayColumnOverview(analysis); // Pass the full analysis object
 
                 // Populate different analysis sections based on the API response
-                displayBasicStats(analysis.basic_statistics);
+                displayBasicStats(analysis); // Pass full analysis object
                 displayDistribution(analysis.distribution_summary, analysis.data_type); // Pass data_type to handle numeric/categorical
                 displayPatterns(analysis.insights); // Using insights as a placeholder for patterns
                 displayQuality(analysis.quality_metrics); // Assuming quality_metrics is a dict
@@ -249,74 +249,97 @@ document.addEventListener('DOMContentLoaded', function() {
         document.getElementById('memory-usage').textContent = basicStats.memory_usage ? formatBytes(basicStats.memory_usage) : '-';
     }
 
-    function displayBasicStats(stats) {
+    function displayBasicStats(analysis) {
         const container = document.getElementById('basic-stats-content');
         container.innerHTML = ''; // Clear previous content
 
-        if (!stats) {
-            container.innerHTML = '<p>No descriptive statistics available.</p>';
+        if (!analysis) {
+            container.innerHTML = '<p>No analysis data available.</p>';
             return;
         }
 
+        // Get the right data source - distribution_summary for statistical measures
+        const distributionData = analysis.distribution_summary || {};
+        const basicInfo = analysis.basic_statistics || {};
+        const dataType = analysis.data_type || currentColumn?.type || '';
+
         let html = '';
-        if (currentColumn && currentColumn.type && (currentColumn.type.toLowerCase().includes('int') || currentColumn.type.toLowerCase().includes('float'))) { // Numeric
+        
+        // Check if it's a numeric column
+        if (dataType.toLowerCase().includes('int') || dataType.toLowerCase().includes('float')) {
             html += '<div class="stats-grid">';
             html += `
                 <div class="stat-item">
+                    <strong>COUNT</strong>
+                    <span>${basicInfo.count ? basicInfo.count.toLocaleString() : 'N/A'}</span>
+                </div>
+                <div class="stat-item">
                     <strong>MEAN</strong>
-                    <span>${safeFormat(stats.mean)}</span>
+                    <span>${safeFormat(distributionData.mean)}</span>
                 </div>
                 <div class="stat-item">
                     <strong>MEDIAN</strong>
-                    <span>${safeFormat(stats.median)}</span>
+                    <span>${safeFormat(distributionData.median)}</span>
                 </div>
                 <div class="stat-item">
                     <strong>STD DEV</strong>
-                    <span>${safeFormat(stats.std)}</span>
+                    <span>${safeFormat(distributionData.std)}</span>
                 </div>
                 <div class="stat-item">
                     <strong>MIN</strong>
-                    <span>${safeFormat(stats.min)}</span>
+                    <span>${safeFormat(distributionData.min)}</span>
                 </div>
                 <div class="stat-item">
                     <strong>MAX</strong>
-                    <span>${safeFormat(stats.max)}</span>
+                    <span>${safeFormat(distributionData.max)}</span>
                 </div>
                 <div class="stat-item">
                     <strong>IQR</strong>
-                    <span>${safeFormat(stats.iqr)}</span>
+                    <span>${safeFormat(distributionData.iqr)}</span>
                 </div>
                 <div class="stat-item">
                     <strong>SKEWNESS</strong>
-                    <span>${safeFormat(stats.skewness)}</span>
+                    <span>${safeFormat(distributionData.skewness)}</span>
                 </div>
                 <div class="stat-item">
                     <strong>KURTOSIS</strong>
-                    <span>${safeFormat(stats.kurtosis)}</span>
+                    <span>${safeFormat(distributionData.kurtosis)}</span>
+                </div>
+                <div class="stat-item">
+                    <strong>VARIANCE</strong>
+                    <span>${safeFormat(distributionData.variance)}</span>
                 </div>
             `;
             html += '</div>';
-        } else if (currentColumn && currentColumn.type && (currentColumn.type === 'object' || currentColumn.type.toLowerCase().includes('category'))) { // Categorical
+        } else if (dataType === 'object' || dataType.toLowerCase().includes('category')) {
+            // Categorical data
             html += '<div class="category-stats">';
+            html += '<div class="stats-grid">';
             html += `
                 <div class="stat-item">
                     <strong>UNIQUE VALUES</strong>
-                    <span>${stats.unique_values ? stats.unique_values.toLocaleString() : 'N/A'}</span>
+                    <span>${distributionData.unique_values ? distributionData.unique_values.toLocaleString() : basicInfo.unique_count ? basicInfo.unique_count.toLocaleString() : 'N/A'}</span>
                 </div>
                 <div class="stat-item">
                     <strong>MOST FREQUENT</strong>
-                    <span>${stats.most_frequent || 'N/A'}</span>
+                    <span>${distributionData.most_frequent || 'N/A'}</span>
                 </div>
                 <div class="stat-item">
                     <strong>FREQUENCY</strong>
-                    <span>${stats.most_frequent_count ? stats.most_frequent_count.toLocaleString() : 'N/A'}</span>
+                    <span>${distributionData.most_frequent_count ? distributionData.most_frequent_count.toLocaleString() : 'N/A'}</span>
+                </div>
+                <div class="stat-item">
+                    <strong>CONCENTRATION</strong>
+                    <span>${safeFormat(distributionData.concentration * 100, 1)}%</span>
                 </div>
             `;
+            html += '</div>';
             html += '<h5>Value Counts:</h5>';
             html += '<div class="value-counts">';
-            if (stats.value_counts) {
-                for (const [value, count] of Object.entries(stats.value_counts)) {
-                    const percentage = (count / (stats.count || 1) * 100).toFixed(1); // Use total count from basic stats
+            if (distributionData.value_counts) {
+                const totalCount = basicInfo.count || Object.values(distributionData.value_counts).reduce((a, b) => a + b, 0);
+                for (const [value, count] of Object.entries(distributionData.value_counts)) {
+                    const percentage = ((count / totalCount) * 100).toFixed(1);
                     html += `
                         <div class="value-count-item">
                             <span class="value">${value}</span>
@@ -330,7 +353,27 @@ document.addEventListener('DOMContentLoaded', function() {
             html += '</div>'; // Close value-counts
             html += '</div>'; // Close category-stats
         } else {
-            html = '<p>No specific statistics available for this data type.</p>';
+            // For other data types (datetime, etc.)
+            html += '<div class="stats-grid">';
+            html += `
+                <div class="stat-item">
+                    <strong>COUNT</strong>
+                    <span>${basicInfo.count ? basicInfo.count.toLocaleString() : 'N/A'}</span>
+                </div>
+                <div class="stat-item">
+                    <strong>NON-NULL</strong>
+                    <span>${basicInfo.non_null_count ? basicInfo.non_null_count.toLocaleString() : 'N/A'}</span>
+                </div>
+                <div class="stat-item">
+                    <strong>UNIQUE VALUES</strong>
+                    <span>${basicInfo.unique_count ? basicInfo.unique_count.toLocaleString() : 'N/A'}</span>
+                </div>
+                <div class="stat-item">
+                    <strong>DATA TYPE</strong>
+                    <span>${dataType || 'N/A'}</span>
+                </div>
+            `;
+            html += '</div>';
         }
 
         container.innerHTML = html;
@@ -341,27 +384,130 @@ document.addEventListener('DOMContentLoaded', function() {
         container.innerHTML = ''; // Clear previous content
 
         if (!distributionData || Object.keys(distributionData).length === 0) {
-            container.innerHTML = '<p>Distribution data not available.</p>';
+            container.innerHTML = '<p>Distribution data not available. Click "Analyze Column" to load distribution data.</p>';
             return;
         }
 
-        // Logic to display based on distributionData content and dataType
-        // This would ideally call specific chart rendering functions.
-        // For now, we'll use placeholders as in your original JS.
-        // The actual charts would need a charting library (e.g., Chart.js, Plotly.js)
-        // and data structured for those libraries.
-
-        // Example: Displaying some key distribution info if available
-        let html = '<div class="chart-placeholder">';
+        let html = '<div class="distribution-analysis">';
+        
         if (dataType && (dataType.toLowerCase().includes('int') || dataType.toLowerCase().includes('float'))) {
-            html += `<p><strong>Mean:</strong> ${safeFormat(distributionData.mean)}</p>`;
-            html += `<p><strong>Median:</strong> ${safeFormat(distributionData.median)}</p>`;
-            html += `<p><strong>Skewness:</strong> ${safeFormat(distributionData.skewness)}</p>`;
-        } else { // Categorical
-            html += `<p><strong>Unique Values:</strong> ${distributionData.unique_values ?? 'N/A'}</p>`;
-            html += `<p><strong>Most Frequent:</strong> ${distributionData.most_frequent || 'N/A'}</p>`;
+            // Numeric distribution
+            html += '<h5>Distribution Summary</h5>';
+            html += '<div class="stats-grid">';
+            html += `
+                <div class="stat-item">
+                    <strong>MEAN</strong>
+                    <span>${safeFormat(distributionData.mean)}</span>
+                </div>
+                <div class="stat-item">
+                    <strong>MEDIAN</strong>
+                    <span>${safeFormat(distributionData.median)}</span>
+                </div>
+                <div class="stat-item">
+                    <strong>MODE</strong>
+                    <span>${safeFormat(distributionData.mode)}</span>
+                </div>
+                <div class="stat-item">
+                    <strong>RANGE</strong>
+                    <span>${safeFormat(distributionData.range)}</span>
+                </div>
+                <div class="stat-item">
+                    <strong>SKEWNESS</strong>
+                    <span>${safeFormat(distributionData.skewness)}</span>
+                </div>
+                <div class="stat-item">
+                    <strong>KURTOSIS</strong>
+                    <span>${safeFormat(distributionData.kurtosis)}</span>
+                </div>
+                <div class="stat-item">
+                    <strong>CV</strong>
+                    <span>${safeFormat(distributionData.cv)}</span>
+                </div>
+            `;
+            html += '</div>';
+            
+            // Distribution interpretation
+            html += '<div class="distribution-interpretation">';
+            html += '<h6>Distribution Characteristics:</h6>';
+            const skewness = distributionData.skewness || 0;
+            const kurtosis = distributionData.kurtosis || 0;
+            
+            if (Math.abs(skewness) < 0.5) {
+                html += '<p class="interpretation-item">📊 <strong>Symmetry:</strong> Approximately symmetric distribution</p>';
+            } else if (skewness > 0.5) {
+                html += '<p class="interpretation-item">📈 <strong>Skewness:</strong> Right-skewed (longer tail on the right)</p>';
+            } else {
+                html += '<p class="interpretation-item">📉 <strong>Skewness:</strong> Left-skewed (longer tail on the left)</p>';
+            }
+            
+            if (Math.abs(kurtosis) < 1) {
+                html += '<p class="interpretation-item">🎯 <strong>Kurtosis:</strong> Normal tail behavior</p>';
+            } else if (kurtosis > 1) {
+                html += '<p class="interpretation-item">⚡ <strong>Kurtosis:</strong> Heavy tails (more extreme values)</p>';
+            } else {
+                html += '<p class="interpretation-item">🎈 <strong>Kurtosis:</strong> Light tails (fewer extreme values)</p>';
+            }
+            html += '</div>';
+            
+        } else {
+            // Categorical distribution
+            html += '<h5>Category Distribution</h5>';
+            html += '<div class="stats-grid">';
+            html += `
+                <div class="stat-item">
+                    <strong>UNIQUE VALUES</strong>
+                    <span>${distributionData.unique_values || 'N/A'}</span>
+                </div>
+                <div class="stat-item">
+                    <strong>MOST FREQUENT</strong>
+                    <span style="font-size: 0.9em;">${distributionData.most_frequent || 'N/A'}</span>
+                </div>
+                <div class="stat-item">
+                    <strong>FREQUENCY</strong>
+                    <span>${distributionData.most_frequent_count || 'N/A'}</span>
+                </div>
+                <div class="stat-item">
+                    <strong>CONCENTRATION</strong>
+                    <span>${safeFormat(distributionData.concentration * 100, 1)}%</span>
+                </div>
+                <div class="stat-item">
+                    <strong>ENTROPY</strong>
+                    <span>${safeFormat(distributionData.entropy)}</span>
+                </div>
+            `;
+            html += '</div>';
+            
+            // Category interpretation
+            html += '<div class="distribution-interpretation">';
+            html += '<h6>Distribution Characteristics:</h6>';
+            const concentration = distributionData.concentration || 0;
+            const entropy = distributionData.entropy || 0;
+            
+            if (concentration > 0.8) {
+                html += '<p class="interpretation-item">🎯 <strong>Highly concentrated:</strong> One category dominates</p>';
+            } else if (concentration > 0.5) {
+                html += '<p class="interpretation-item">📊 <strong>Moderately concentrated:</strong> Some categories are more common</p>';
+            } else {
+                html += '<p class="interpretation-item">⚖️ <strong>Well distributed:</strong> Categories are relatively balanced</p>';
+            }
+            
+            if (entropy > 3) {
+                html += '<p class="interpretation-item">🌈 <strong>High diversity:</strong> Many different categories</p>';
+            } else if (entropy > 1) {
+                html += '<p class="interpretation-item">📈 <strong>Moderate diversity:</strong> Several different categories</p>';
+            } else {
+                html += '<p class="interpretation-item">🔒 <strong>Low diversity:</strong> Few distinct categories</p>';
+            }
+            html += '</div>';
         }
-        html += '<p>Visualizations (Histogram, Box Plot, Value Counts) would appear here.</p>';
+        
+        // Chart placeholder for future visualization
+        html += '<div class="chart-placeholder">';
+        html += '<h6>📊 Visualization Area</h6>';
+        html += '<p>Interactive charts (Histogram, Box Plot, Distribution Plot) will be displayed here.</p>';
+        html += '<p>Use the buttons below to generate specific visualizations:</p>';
+        html += '</div>';
+        
         html += '</div>';
         container.innerHTML = html;
     }
@@ -371,20 +517,26 @@ document.addEventListener('DOMContentLoaded', function() {
         const outlierDetectionContainer = document.getElementById('outlier-detection');
         const trendsAnalysisContainer = document.getElementById('trends-analysis');
 
-        valuePatternsContainer.innerHTML = '<p>No specific pattern analysis performed.</p>';
-        outlierDetectionContainer.innerHTML = '<p>No specific outlier detection performed.</p>';
-        trendsAnalysisContainer.innerHTML = '<p>No specific trend analysis performed.</p>';
-
-        // If insights array is populated from backend, display it.
+        // Display insights if available
         if (insights && insights.length > 0) {
-            // Basic display, would need more structured data from backend for specific sections
-            valuePatternsContainer.innerHTML = insights.map(insight => `<p>${insight}</p>`).join('');
+            let html = '<div class="pattern-result">';
+            html += '<h6>🔍 Data Insights</h6>';
+            insights.forEach(insight => {
+                html += `<div class="insight-item">💡 ${insight}</div>`;
+            });
+            html += '</div>';
+            valuePatternsContainer.innerHTML = html;
+        } else {
+            valuePatternsContainer.innerHTML = '<div class="pattern-result"><h6>🔍 Value Patterns</h6><p>Click on the Patterns tab to load detailed pattern analysis.</p></div>';
         }
-        // For more specific sections like outliers and trends, you'd need to fetch those separately
-        // or ensure the backend returns structured data for them.
-        // E.g., fetch outliers:
+
+        // Initialize other sections with loading messages
+        outlierDetectionContainer.innerHTML = '<div class="pattern-result"><h6>⚠️ Outlier Detection</h6><p>Loading outlier analysis...</p></div>';
+        trendsAnalysisContainer.innerHTML = '<div class="pattern-result"><h6>📈 Trends Analysis</h6><p>Loading trend analysis...</p></div>';
+
+        // Load specific pattern data when this function is called
         fetchOutlierInfo();
-        fetchTrendInfo(); // If applicable
+        fetchTrendInfo();
     }
 
     function displayQuality(qualityMetrics) {
@@ -646,11 +798,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    // Placeholder for generic messages, can be used for actions that don't fetch data immediately
-    function showMessage(title, type, message = '') {
-        // In a real app, this might open a modal or notification
-        alert(`${title} ${message || 'options would be displayed here.'}`);
-    }
+    // This function has been moved and enhanced above
 
     // --- Helper functions for rendering ---
 
@@ -675,6 +823,73 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function showError(message) {
         alert(message); // In a real app, use a proper notification system
+    }
+    
+    function showResultModal(title, content) {
+        // Create modal if it doesn't exist
+        let modal = document.getElementById('result-modal');
+        if (!modal) {
+            modal = document.createElement('div');
+            modal.id = 'result-modal';
+            modal.className = 'modal';
+            modal.innerHTML = `
+                <div class="modal-content result-modal-content">
+                    <div class="modal-header">
+                        <h4 id="result-modal-title"></h4>
+                        <button onclick="closeResultModal()" class="modal-close">×</button>
+                    </div>
+                    <div class="modal-body" id="result-modal-body"></div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+        }
+        
+        document.getElementById('result-modal-title').textContent = title;
+        document.getElementById('result-modal-body').innerHTML = content;
+        modal.style.display = 'flex';
+    }
+    
+    function closeResultModal() {
+        const modal = document.getElementById('result-modal');
+        if (modal) {
+            modal.style.display = 'none';
+        }
+    }
+    
+    function downloadJsonData(filename, data) {
+        try {
+            const jsonData = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+            const blob = new Blob([jsonData], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            
+            // Cleanup
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+            
+            showMessage('Success', 'success', `File ${filename} downloaded successfully!`);
+        } catch (error) {
+            console.error('Download error:', error);
+            showError('Failed to download file: ' + error.message);
+        }
+    }
+    
+    function showMessage(title, type, message = '') {
+        // Enhanced message function for different types
+        const icons = {
+            'success': '✅',
+            'info': 'ℹ️',
+            'warning': '⚠️',
+            'error': '❌'
+        };
+        
+        const icon = icons[type] || icons['info'];
+        alert(`${icon} ${title}\n${message}`);
     }
 
     function hideAnalysisUI() {
@@ -793,8 +1008,28 @@ document.addEventListener('DOMContentLoaded', function() {
             }
 
             const data = await response.json();
-            if (data.success) {
-                alert(`Success: ${data.message}`);
+            if (data.success && data.transformation_analysis) {
+                const analysis = data.transformation_analysis;
+                let resultHtml = `
+                    <div class="action-result">
+                        <h5>🔄 Transform Analysis: ${analysis.column}</h5>
+                        <p><strong>Method:</strong> ${analysis.method}</p>
+                        <p><strong>Description:</strong> ${analysis.description}</p>
+                        
+                        <h6>Original Statistics:</h6>
+                        <div class="stats-mini-grid">
+                            <div class="mini-stat">Mean: ${safeFormat(analysis.original_stats.mean)}</div>
+                            <div class="mini-stat">Std: ${safeFormat(analysis.original_stats.std)}</div>
+                            <div class="mini-stat">Min: ${safeFormat(analysis.original_stats.min)}</div>
+                            <div class="mini-stat">Max: ${safeFormat(analysis.original_stats.max)}</div>
+                            <div class="mini-stat">Skewness: ${safeFormat(analysis.original_stats.skewness)}</div>
+                        </div>
+                        
+                        <p><strong>Recommendation:</strong> ${analysis.recommendation}</p>
+                        <p class="status-success">✅ ${data.message}</p>
+                    </div>
+                `;
+                showResultModal('Transform Analysis', resultHtml);
             } else {
                 throw new Error(data.error || 'Transform failed');
             }
@@ -837,8 +1072,33 @@ document.addEventListener('DOMContentLoaded', function() {
             }
 
             const data = await response.json();
-            if (data.success) {
-                alert(`Success: ${data.message}`);
+            if (data.success && data.cleaning_analysis) {
+                const analysis = data.cleaning_analysis;
+                let resultHtml = `
+                    <div class="action-result">
+                        <h5>🧹 Cleaning Analysis: ${analysis.column}</h5>
+                        
+                        <div class="cleaning-stats">
+                            <div class="stats-mini-grid">
+                                <div class="mini-stat">Original Records: ${analysis.original_count.toLocaleString()}</div>
+                                <div class="mini-stat">Records to Remove: ${analysis.records_to_remove.toLocaleString()}</div>
+                                <div class="mini-stat">Remaining Records: ${analysis.remaining_count.toLocaleString()}</div>
+                                <div class="mini-stat impact-${analysis.impact_percentage > 20 ? 'high' : analysis.impact_percentage > 10 ? 'medium' : 'low'}">
+                                    Impact: ${analysis.impact_percentage}%
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <h6>Cleaning Actions:</h6>
+                        <ul class="cleaning-actions">
+                            ${analysis.cleaning_actions.map(action => `<li>📋 ${action}</li>`).join('')}
+                        </ul>
+                        
+                        <p><strong>⚠️ Recommendation:</strong> ${analysis.recommendation}</p>
+                        <p class="status-success">✅ ${data.message}</p>
+                    </div>
+                `;
+                showResultModal('Cleaning Analysis', resultHtml);
             } else {
                 throw new Error(data.error || 'Cleaning failed');
             }
@@ -877,8 +1137,35 @@ document.addEventListener('DOMContentLoaded', function() {
             }
 
             const data = await response.json();
-            if (data.success) {
-                alert(`Success: ${data.message}`);
+            if (data.success && data.encoding_analysis) {
+                const analysis = data.encoding_analysis;
+                let resultHtml = `
+                    <div class="action-result">
+                        <h5>🔤 Encoding Analysis: ${analysis.column}</h5>
+                        <p><strong>Method:</strong> ${analysis.encoding_method}</p>
+                        
+                        <h6>Column Information:</h6>
+                        <div class="stats-mini-grid">
+                            <div class="mini-stat">Unique Values: ${analysis.column_info.unique_values}</div>
+                            <div class="mini-stat">Most Frequent: ${analysis.column_info.most_frequent || 'N/A'}</div>
+                            <div class="mini-stat">Data Type: ${analysis.column_info.data_type}</div>
+                        </div>
+                        
+                        <h6>Encoding Details:</h6>
+                        <p><strong>Description:</strong> ${analysis.encoding_details.description}</p>
+                        <p><strong>Suitable For:</strong> ${analysis.encoding_details.suitable_for}</p>
+                        <p><strong>Output Columns:</strong> ${analysis.encoding_details.output_columns}</p>
+                        <p><strong>Memory Efficient:</strong> ${analysis.encoding_details.memory_efficient ? '✅ Yes' : '❌ No'}</p>
+                        
+                        <h6>Recommendations:</h6>
+                        <ul class="recommendations-list">
+                            ${analysis.recommendations.map(rec => `<li>💡 ${rec}</li>`).join('')}
+                        </ul>
+                        
+                        <p class="status-success">✅ ${data.message}</p>
+                    </div>
+                `;
+                showResultModal('Encoding Analysis', resultHtml);
             } else {
                 throw new Error(data.error || 'Encoding failed');
             }
@@ -908,8 +1195,37 @@ document.addEventListener('DOMContentLoaded', function() {
             }
 
             const data = await response.json();
-            if (data.success) {
-                alert(`Success: ${data.message}\nDownload URL: ${data.export_info.download_url}`);
+            if (data.success && data.export_info) {
+                const exportInfo = data.export_info;
+                let resultHtml = `
+                    <div class="action-result">
+                        <h5>📊 Export Analysis: ${exportInfo.column}</h5>
+                        <p><strong>Format:</strong> ${exportInfo.format.toUpperCase()}</p>
+                        
+                        <h6>Export Statistics:</h6>
+                        <div class="stats-mini-grid">
+                            <div class="mini-stat">Completed Sections: ${exportInfo.export_stats.completed_sections}/${exportInfo.export_stats.total_sections}</div>
+                            <div class="mini-stat">Data Points: ${exportInfo.export_stats.data_points_analyzed.toLocaleString()}</div>
+                            <div class="mini-stat">Completeness: ${exportInfo.export_stats.analysis_completeness}%</div>
+                            <div class="mini-stat">File Size: ${exportInfo.file_size_estimate}</div>
+                        </div>
+                        
+                        <p><strong>Instructions:</strong> ${exportInfo.download_instructions}</p>
+                        <p><strong>Suggestion:</strong> ${data.download_suggestion}</p>
+                        
+                        ${exportFormat === 'json' && data.export_data ? `
+                            <div class="export-data-section">
+                                <h6>Export Data:</h6>
+                                <button onclick="downloadJsonData('${currentColumn.name}_analysis.json', ${JSON.stringify(JSON.stringify(data.export_data))})" class="btn btn-primary">
+                                    💾 Download JSON File
+                                </button>
+                            </div>
+                        ` : ''}
+                        
+                        <p class="status-success">✅ ${data.message}</p>
+                    </div>
+                `;
+                showResultModal('Export Analysis', resultHtml);
             } else {
                 throw new Error(data.error || 'Export failed');
             }
@@ -1364,7 +1680,189 @@ const columnAnalysisCSS = `
     border: 1px solid #22c55e;
     margin: 10px 0;
 }
+
+/* Result modal styling */
+.result-modal-content {
+    max-width: 800px;
+    max-height: 80vh;
+    overflow-y: auto;
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 20px 0 20px;
+    border-bottom: 1px solid #e2e8f0;
+    margin-bottom: 20px;
+}
+
+.modal-close {
+    background: none;
+    border: none;
+    font-size: 24px;
+    cursor: pointer;
+    color: #6b7280;
+    padding: 0;
+    width: 30px;
+    height: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    transition: all 0.2s ease;
+}
+
+.modal-close:hover {
+    background: #f3f4f6;
+    color: #374151;
+}
+
+.action-result {
+    padding: 20px;
+    border-radius: 12px;
+    background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+    border: 1px solid #e2e8f0;
+}
+
+.action-result h5 {
+    margin: 0 0 15px 0;
+    color: #1e293b;
+    font-size: 1.3em;
+}
+
+.action-result h6 {
+    margin: 20px 0 10px 0;
+    color: #374151;
+    font-size: 1.1em;
+}
+
+.stats-mini-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 10px;
+    margin: 15px 0;
+}
+
+.mini-stat {
+    background: white;
+    padding: 10px 15px;
+    border-radius: 8px;
+    border: 1px solid #e5e7eb;
+    text-align: center;
+    font-size: 0.9em;
+    font-weight: 600;
+    color: #374151;
+}
+
+.mini-stat.impact-low {
+    border-left: 4px solid #22c55e;
+    color: #166534;
+}
+
+.mini-stat.impact-medium {
+    border-left: 4px solid #f59e0b;
+    color: #92400e;
+}
+
+.mini-stat.impact-high {
+    border-left: 4px solid #ef4444;
+    color: #991b1b;
+}
+
+.cleaning-actions, .recommendations-list {
+    list-style: none;
+    padding: 0;
+    margin: 15px 0;
+}
+
+.cleaning-actions li, .recommendations-list li {
+    background: white;
+    padding: 8px 12px;
+    margin: 5px 0;
+    border-radius: 6px;
+    border-left: 3px solid #3b82f6;
+    font-size: 0.9em;
+}
+
+.status-success {
+    background: #dcfce7;
+    color: #166534;
+    padding: 10px 15px;
+    border-radius: 8px;
+    border: 1px solid #22c55e;
+    margin: 15px 0;
+    font-weight: 600;
+}
+
+.export-data-section {
+    background: white;
+    padding: 15px;
+    border-radius: 8px;
+    border: 1px solid #e5e7eb;
+    margin: 15px 0;
+    text-align: center;
+}
+
+.distribution-analysis {
+    padding: 20px;
+}
+
+.distribution-interpretation {
+    background: white;
+    padding: 15px;
+    border-radius: 8px;
+    border-left: 4px solid #3b82f6;
+    margin: 20px 0;
+}
+
+.interpretation-item {
+    margin: 10px 0;
+    padding: 8px 0;
+    font-size: 0.95em;
+    line-height: 1.4;
+}
+
+.insight-item {
+    background: white;
+    padding: 10px 15px;
+    margin: 8px 0;
+    border-radius: 6px;
+    border-left: 3px solid #10b981;
+    font-size: 0.9em;
+}
 </style>
 `;
 
 document.head.insertAdjacentHTML('beforeend', columnAnalysisCSS);
+
+// Global functions that need to be accessible from HTML
+window.closeResultModal = function() {
+    const modal = document.getElementById('result-modal');
+    if (modal) {
+        modal.style.display = 'none';
+    }
+};
+
+window.downloadJsonData = function(filename, data) {
+    try {
+        const jsonData = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+        const blob = new Blob([jsonData], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        
+        // Cleanup
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+        
+        alert('✅ File downloaded successfully!');
+    } catch (error) {
+        console.error('Download error:', error);
+        alert('❌ Failed to download file: ' + error.message);
+    }
+};

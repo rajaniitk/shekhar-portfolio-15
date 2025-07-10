@@ -3,6 +3,7 @@ from services.column_analysis import ColumnAnalysis
 from app import db
 from models import Dataset, Analysis
 import logging
+import pandas as pd
 
 column_analysis_bp = Blueprint('column_analysis', __name__, url_prefix='/api/column_analysis')
 
@@ -286,6 +287,7 @@ def get_recommendations(dataset_id):
 def transform_column(dataset_id):
     try:
         dataset = Dataset.query.get_or_404(dataset_id)
+        analyzer = ColumnAnalysis()
         
         column = request.json.get('column')
         transformation_type = request.json.get('transformation_type', 'standardize')
@@ -293,15 +295,44 @@ def transform_column(dataset_id):
         if not column:
             return jsonify({'error': 'Column parameter is required'}), 400
         
-        # For now, return a placeholder response
-        # In a full implementation, you would apply the transformation
+        # Load the data to check the column
+        analyzer._load_dataframe(dataset.file_path)
+        if column not in analyzer.df.columns:
+            return jsonify({'error': f'Column "{column}" not found in dataset'}), 400
+        
+        data = analyzer.df[column]
+        
+        # Check if column is numeric for transformation
+        if not pd.api.types.is_numeric_dtype(data):
+            return jsonify({'error': f'Column "{column}" is not numeric. Transformations only apply to numeric columns.'}), 400
+        
+        # Analyze the data before transformation
+        original_stats = {
+            'mean': float(data.mean()),
+            'std': float(data.std()),
+            'min': float(data.min()),
+            'max': float(data.max()),
+            'skewness': float(data.skew())
+        }
+        
+        # Simulate transformation analysis
+        transformation_info = {
+            'standardize': 'Standardizes data to have mean=0, std=1',
+            'normalize': 'Normalizes data to range [0, 1]',
+            'log': 'Applies logarithmic transformation (log(x+1))',
+            'sqrt': 'Applies square root transformation'
+        }
+        
         return jsonify({
             'success': True,
-            'message': f'Column "{column}" transformation with "{transformation_type}" completed',
-            'transformation_applied': {
+            'message': f'Column "{column}" transformation analysis completed',
+            'transformation_analysis': {
                 'column': column,
                 'method': transformation_type,
-                'status': 'completed'
+                'description': transformation_info.get(transformation_type, 'Unknown transformation'),
+                'original_stats': original_stats,
+                'recommendation': f'{transformation_type.capitalize()} transformation recommended for this column',
+                'status': 'analysis_completed'
             }
         })
         
@@ -313,6 +344,7 @@ def transform_column(dataset_id):
 def clean_column(dataset_id):
     try:
         dataset = Dataset.query.get_or_404(dataset_id)
+        analyzer = ColumnAnalysis()
         
         column = request.json.get('column')
         cleaning_options = request.json.get('options', {})
@@ -320,15 +352,62 @@ def clean_column(dataset_id):
         if not column:
             return jsonify({'error': 'Column parameter is required'}), 400
         
-        # For now, return a placeholder response
-        # In a full implementation, you would apply the cleaning
+        # Load the data to analyze cleaning impact
+        analyzer._load_dataframe(dataset.file_path)
+        if column not in analyzer.df.columns:
+            return jsonify({'error': f'Column "{column}" not found in dataset'}), 400
+        
+        data = analyzer.df[column]
+        original_count = len(data)
+        
+        # Analyze what would be cleaned
+        cleaning_analysis = {
+            'original_count': original_count,
+            'null_count': int(data.isnull().sum()),
+            'duplicate_count': int(original_count - data.nunique()),
+            'outlier_count': 0
+        }
+        
+        # Calculate outliers if numeric
+        if pd.api.types.is_numeric_dtype(data):
+            Q1 = data.quantile(0.25)
+            Q3 = data.quantile(0.75)
+            IQR = Q3 - Q1
+            outliers = data[(data < Q1 - 1.5 * IQR) | (data > Q3 + 1.5 * IQR)]
+            cleaning_analysis['outlier_count'] = len(outliers)
+        
+        # Calculate impact of cleaning options
+        records_to_remove = 0
+        cleaning_actions = []
+        
+        if cleaning_options.get('remove_nulls', False):
+            records_to_remove += cleaning_analysis['null_count']
+            cleaning_actions.append(f"Remove {cleaning_analysis['null_count']} null values")
+        
+        if cleaning_options.get('remove_duplicates', False):
+            records_to_remove += cleaning_analysis['duplicate_count']
+            cleaning_actions.append(f"Remove {cleaning_analysis['duplicate_count']} duplicate values")
+        
+        if cleaning_options.get('remove_outliers', False):
+            records_to_remove += cleaning_analysis['outlier_count']
+            cleaning_actions.append(f"Remove {cleaning_analysis['outlier_count']} outlier values")
+        
+        remaining_count = max(0, original_count - records_to_remove)
+        impact_percentage = ((records_to_remove / original_count) * 100) if original_count > 0 else 0
+        
         return jsonify({
             'success': True,
-            'message': f'Column "{column}" cleaning completed',
-            'cleaning_applied': {
+            'message': f'Column "{column}" cleaning analysis completed',
+            'cleaning_analysis': {
                 'column': column,
-                'options': cleaning_options,
-                'status': 'completed'
+                'options_applied': cleaning_options,
+                'original_count': original_count,
+                'records_to_remove': records_to_remove,
+                'remaining_count': remaining_count,
+                'impact_percentage': round(impact_percentage, 2),
+                'cleaning_actions': cleaning_actions,
+                'recommendation': 'Review the impact before applying changes to the dataset',
+                'status': 'analysis_completed'
             }
         })
         
@@ -340,6 +419,7 @@ def clean_column(dataset_id):
 def encode_column(dataset_id):
     try:
         dataset = Dataset.query.get_or_404(dataset_id)
+        analyzer = ColumnAnalysis()
         
         column = request.json.get('column')
         encoding_type = request.json.get('encoding_type', 'label')
@@ -347,15 +427,77 @@ def encode_column(dataset_id):
         if not column:
             return jsonify({'error': 'Column parameter is required'}), 400
         
-        # For now, return a placeholder response
-        # In a full implementation, you would apply the encoding
+        # Load the data to analyze encoding
+        analyzer._load_dataframe(dataset.file_path)
+        if column not in analyzer.df.columns:
+            return jsonify({'error': f'Column "{column}" not found in dataset'}), 400
+        
+        data = analyzer.df[column]
+        
+        # Check if column is categorical
+        if pd.api.types.is_numeric_dtype(data):
+            return jsonify({'error': f'Column "{column}" is numeric. Encoding applies to categorical columns.'}), 400
+        
+        # Analyze the categorical data
+        unique_values = data.nunique()
+        value_counts = data.value_counts()
+        
+        # Provide encoding recommendations and analysis
+        encoding_info = {
+            'label': {
+                'description': 'Assigns integer labels to categories',
+                'suitable_for': 'Ordinal data or when preserving order',
+                'output_columns': 1,
+                'memory_efficient': True
+            },
+            'onehot': {
+                'description': 'Creates binary columns for each category',
+                'suitable_for': 'Nominal data with low cardinality',
+                'output_columns': unique_values,
+                'memory_efficient': unique_values <= 10
+            },
+            'target': {
+                'description': 'Encodes based on target variable statistics',
+                'suitable_for': 'High cardinality categorical features',
+                'output_columns': 1,
+                'memory_efficient': True
+            },
+            'ordinal': {
+                'description': 'Maps categories to ordered integers',
+                'suitable_for': 'Naturally ordered categories',
+                'output_columns': 1,
+                'memory_efficient': True
+            }
+        }
+        
+        selected_encoding = encoding_info.get(encoding_type, encoding_info['label'])
+        
+        # Generate recommendations
+        recommendations = []
+        if unique_values == 2:
+            recommendations.append("Binary encoding or label encoding recommended for binary categorical data")
+        elif unique_values <= 10:
+            recommendations.append("One-hot encoding suitable for low cardinality")
+        elif unique_values > 50:
+            recommendations.append("Target encoding recommended for high cardinality")
+        else:
+            recommendations.append("Label encoding or ordinal encoding suitable for medium cardinality")
+        
         return jsonify({
             'success': True,
-            'message': f'Column "{column}" encoding with "{encoding_type}" completed',
-            'encoding_applied': {
+            'message': f'Column "{column}" encoding analysis completed',
+            'encoding_analysis': {
                 'column': column,
-                'method': encoding_type,
-                'status': 'completed'
+                'encoding_method': encoding_type,
+                'column_info': {
+                    'unique_values': unique_values,
+                    'most_frequent': value_counts.index[0] if len(value_counts) > 0 else None,
+                    'data_type': str(data.dtype)
+                },
+                'encoding_details': selected_encoding,
+                'recommendations': recommendations,
+                'preview_mapping': dict(value_counts.head(10)),
+                'status': 'analysis_completed'
             }
         })
         
@@ -367,6 +509,7 @@ def encode_column(dataset_id):
 def export_analysis(dataset_id):
     try:
         dataset = Dataset.query.get_or_404(dataset_id)
+        analyzer = ColumnAnalysis()
         
         column = request.args.get('column')
         export_format = request.args.get('format', 'json')
@@ -374,17 +517,58 @@ def export_analysis(dataset_id):
         if not column:
             return jsonify({'error': 'Column parameter is required'}), 400
         
-        # For now, return a placeholder response
-        # In a full implementation, you would generate and return the export file
+        # Generate comprehensive analysis for export
+        analyzer._load_dataframe(dataset.file_path)
+        if column not in analyzer.df.columns:
+            return jsonify({'error': f'Column "{column}" not found in dataset'}), 400
+        
+        # Get comprehensive analysis
+        analysis_summary = analyzer.comprehensive_column_summary(column)
+        converted_summary = analyzer._convert_numpy_types(analysis_summary)
+        
+        # Prepare export metadata
+        from datetime import datetime
+        export_metadata = {
+            'export_timestamp': datetime.now().isoformat(),
+            'dataset_name': dataset.filename,
+            'dataset_id': dataset_id,
+            'column_analyzed': column,
+            'export_format': export_format,
+            'analysis_version': '1.0'
+        }
+        
+        # Create export data structure
+        export_data = {
+            'metadata': export_metadata,
+            'column_analysis': converted_summary
+        }
+        
+        # Calculate export statistics
+        analysis_sections = [
+            'basic_statistics', 'quality_metrics', 'distribution_summary', 
+            'insights', 'recommendations'
+        ]
+        
+        export_stats = {
+            'total_sections': len(analysis_sections),
+            'completed_sections': sum(1 for section in analysis_sections if section in converted_summary and converted_summary[section]),
+            'data_points_analyzed': len(analyzer.df[column]),
+            'analysis_completeness': round((sum(1 for section in analysis_sections if section in converted_summary and converted_summary[section]) / len(analysis_sections)) * 100, 1)
+        }
+        
         return jsonify({
             'success': True,
-            'message': f'Analysis for column "{column}" exported successfully',
+            'message': f'Analysis for column "{column}" prepared for export',
             'export_info': {
                 'column': column,
                 'format': export_format,
-                'status': 'completed',
-                'download_url': f'/api/column_analysis/download/{dataset_id}?column={column}&format={export_format}'
-            }
+                'export_stats': export_stats,
+                'file_size_estimate': f"{len(str(export_data)) / 1024:.2f} KB",
+                'status': 'ready_for_download',
+                'download_instructions': f'Use the provided export data or implement download endpoint for {export_format} format'
+            },
+            'export_data': export_data if export_format == 'json' else None,
+            'download_suggestion': f'Save the export_data as {column}_analysis.{export_format}'
         })
         
     except Exception as e:
